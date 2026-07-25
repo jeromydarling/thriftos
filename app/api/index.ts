@@ -1,0 +1,445 @@
+/**
+ * Hono API — JSON, uploads, offline sync, and media.
+ *
+ * Mounted at /api/* inside the same Worker as the SSR app, so there is no CORS
+ * to configure and no second deploy to keep in step.
+ */
+import { Hono } from "hono";
+import { all, first, run } from "../lib/db";
+import { newId } from "../lib/ids";
+import { getUser } from "../lib/auth";
+import { clientIp, LIMITS, rateLimit, recordAttempt } from "../lib/ratelimit";
+import { extractItemFromPhoto, confidenceLabel } from "../lib/ai";
+import { findOrCreateContact } from "../lib/contacts";
+import { effectivePriceCents, DEFAULT_MARKDOWN_RULES } from "../lib/markdown";
+import { suppress } from "../lib/email";
+import { toCsv } from "../lib/impact";
+import type { AppEnv } from "../lib/env";
+import { scoreSpam } from "../lib/spam";
+import type { PlanId } from "../lib/pricing";
+
+type Ctx = { Bindings: AppEnv };
+
+export const api = new Hono<Ctx>();
+
+const json = (data: unknown, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+
+/* ─── Health ────────────────────────────────────────────────────────────── */
+
+api.get("/api/health", async (c) => {
+  const row = await first<{ n: number }>(c.env.DB, `SELECT 1 AS n`);
+  return json({ ok: row?.n === 1, service: "thriftos", time: new Date().toISOString() });
+});
+
+/* ─── Media: R2 + on-the-fly resizing ───────────────────────────────────── */
+
+api.get("/api/media/:key{.+}", async (c) => {
+  const key = c.req.param("key");
+  const width = parseInt(c.req.query("w") ?? "", 10);
+
+  const object = await c.env.MEDIA.get(key);
+  if (!object) return c.notFound();
+
+  const headers = new Headers();
+  headers.set("Cache-Control", "public, max-age=31536000, immutable");
+
+  // Resize through the Images binding when a width is asked for; fall back to
+  // the original if the binding isn't available or the transform fails.
+  if (Number.isFinite(width) && width > 0 && width <= 2400 && c.env.IMAGES) {
+    try {
+      const result = await c.env.IMAGES.input(object.body as ReadableStream)
+        .transform({ width })
+        .output({ format: "image/webp" });
+      headers.set("Content-Type", "image/webp");
+      return new Response(result.image(), { headers });
+    } catch (err) {
+      console.warn("image transform failed, serving original:", err);
+      const original = await c.env.MEDIA.get(key);
+      if (!original) return c.notFound();
+      headers.set("Content-Type", original.httpMetadata?.contentType ?? "image/jpeg");
+      return new Response(original.body, { headers });
+    }
+  }
+
+  headers.set("Content-Type", object.httpMetadata?.contentType ?? "image/jpeg");
+  return new Response(object.body, { headers });
+});
+
+/* ─── Item intake: photo → R2 → Workers AI ──────────────────────────────── */
+
+api.post("/api/intake/photo", async (c) => {
+  const user = await getUser(c.req.raw, c.env.DB);
+  if (!user) return json({ error: "Please sign in first." }, 401);
+
+  const limitKey = `ai:${user.orgId}`;
+  const limit = await rateLimit(c.env.KV, limitKey, LIMITS.aiIntake);
+  if (!limit.allowed) {
+    return json(
+      {
+        error: "That's a lot of photos at once. Give it a minute and try again.",
+        retryAfter: limit.retryAfterSeconds,
+      },
+      429
+    );
+  }
+  await recordAttempt(c.env.KV, limitKey, LIMITS.aiIntake);
+
+  const form = await c.req.formData();
+  const file = form.get("photo");
+  if (!(file instanceof File)) return json({ error: "No photo was attached." }, 400);
+  if (file.size > 12_000_000) {
+    return json({ error: "That photo is very large — try one under 12MB." }, 400);
+  }
+
+  const bytes = await file.arrayBuffer();
+  const key = `orgs/${user.orgId}/items/${newId("item")}.jpg`;
+
+  // Store the original first: even if AI is down, the photo is safely kept.
+  await c.env.MEDIA.put(key, bytes, {
+    httpMetadata: { contentType: file.type || "image/jpeg" },
+  });
+
+  const org = await first<{ plan: string }>(
+    c.env.DB,
+    `SELECT plan FROM orgs WHERE id = ?`,
+    user.orgId
+  );
+
+  const extraction = await extractItemFromPhoto(c.env, {
+    orgId: user.orgId,
+    userId: user.id,
+    plan: (org?.plan ?? "stall") as PlanId,
+    image: bytes,
+  });
+
+  return json({
+    photoKey: key,
+    photoUrl: `/api/media/${key}`,
+    // Always a suggestion. The form stays editable and nothing is saved yet.
+    suggestion: extraction.data,
+    confidence: extraction.data ? confidenceLabel(extraction.data.confidence) : null,
+    degraded: extraction.degraded,
+    message: extraction.message,
+  });
+});
+
+/* ─── POS: offline queue sync ───────────────────────────────────────────── */
+
+interface OfflineSale {
+  offlineId: string;
+  lines: { itemId?: string; title: string; priceCents: number; retailEstimateCents?: number }[];
+  subtotalCents: number;
+  taxCents?: number;
+  roundupCents?: number;
+  totalCents: number;
+  tender: string;
+  taxExempt?: boolean;
+  createdAt?: string;
+}
+
+/**
+ * The register keeps selling when the network drops; queued sales replay here.
+ * `offline_id` carries a unique index, so replaying the same queue twice — which
+ * absolutely will happen — cannot double-charge or double-count a sale.
+ */
+api.post("/api/pos/sync", async (c) => {
+  const user = await getUser(c.req.raw, c.env.DB);
+  if (!user) return json({ error: "Please sign in first." }, 401);
+
+  const body = (await c.req.json().catch(() => null)) as { sales?: OfflineSale[] } | null;
+  const sales = body?.sales ?? [];
+  if (!Array.isArray(sales) || sales.length === 0) return json({ synced: 0, duplicates: 0 });
+  if (sales.length > 200) return json({ error: "Too many at once — sync in smaller batches." }, 400);
+
+  let synced = 0;
+  let duplicates = 0;
+
+  for (const sale of sales) {
+    if (!sale?.offlineId) continue;
+
+    const already = await first<{ id: string }>(
+      c.env.DB,
+      `SELECT id FROM transactions WHERE org_id = ? AND offline_id = ?`,
+      user.orgId,
+      sale.offlineId
+    );
+    if (already) {
+      duplicates++;
+      continue;
+    }
+
+    const txId = newId("transaction");
+    const stmts: D1PreparedStatement[] = [
+      c.env.DB.prepare(
+        `INSERT INTO transactions
+           (id, org_id, cashier_user_id, subtotal_cents, tax_cents, roundup_cents, total_cents,
+            tender, tax_exempt, offline_id, synced_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)`
+      ).bind(
+        txId,
+        user.orgId,
+        user.id,
+        Math.round(sale.subtotalCents || 0),
+        Math.round(sale.taxCents || 0),
+        Math.round(sale.roundupCents || 0),
+        Math.round(sale.totalCents || 0),
+        sale.tender || "cash",
+        sale.taxExempt ? 1 : 0,
+        sale.offlineId,
+        sale.createdAt ?? new Date().toISOString()
+      ),
+    ];
+
+    for (const line of sale.lines ?? []) {
+      stmts.push(
+        c.env.DB.prepare(
+          `INSERT INTO transaction_items
+             (id, org_id, transaction_id, item_id, title, price_cents, retail_estimate_cents)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          newId("txItem"),
+          user.orgId,
+          txId,
+          line.itemId ?? null,
+          line.title || "Item",
+          Math.round(line.priceCents || 0),
+          Math.round(line.retailEstimateCents || 0)
+        )
+      );
+      if (line.itemId) {
+        stmts.push(
+          c.env.DB.prepare(
+            `UPDATE items SET status = 'sold', sold_at = ?, sold_price_cents = ?, updated_at = datetime('now')
+              WHERE id = ? AND org_id = ?`
+          ).bind(
+            sale.createdAt ?? new Date().toISOString(),
+            Math.round(line.priceCents || 0),
+            line.itemId,
+            user.orgId
+          )
+        );
+      }
+    }
+
+    await c.env.DB.batch(stmts);
+    synced++;
+  }
+
+  return json({ synced, duplicates });
+});
+
+/** Item lookup for the register — by tag number or id, with markdown applied. */
+api.get("/api/pos/lookup", async (c) => {
+  const user = await getUser(c.req.raw, c.env.DB);
+  if (!user) return json({ error: "Please sign in first." }, 401);
+
+  const q = (c.req.query("q") ?? "").trim();
+  if (!q) return json({ items: [] });
+
+  const rows = await all<{
+    id: string;
+    title: string;
+    tag_number: string | null;
+    price_cents: number;
+    retail_estimate_cents: number;
+    tag_color: string | null;
+    intake_date: string;
+    category: string | null;
+  }>(
+    c.env.DB,
+    `SELECT id, title, tag_number, price_cents, retail_estimate_cents, tag_color, intake_date, category
+       FROM items
+      WHERE org_id = ? AND status = 'available' AND (tag_number = ? OR id = ? OR title LIKE ?)
+      LIMIT 20`,
+    user.orgId,
+    q,
+    q,
+    `%${q}%`
+  );
+
+  const rules = await all<{ tag_color: string; discount_pct: number; age_days: number }>(
+    c.env.DB,
+    `SELECT tag_color, discount_pct, age_days FROM markdown_rules WHERE org_id = ? AND is_active = 1`,
+    user.orgId
+  );
+  const markdownRules = rules.length
+    ? rules.map((r) => ({
+        tagColor: r.tag_color,
+        weekIndex: 0,
+        discountPct: r.discount_pct,
+        ageDays: r.age_days,
+      }))
+    : DEFAULT_MARKDOWN_RULES;
+
+  return json({
+    items: rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      tagNumber: row.tag_number,
+      category: row.category,
+      tagColor: row.tag_color,
+      listPriceCents: row.price_cents,
+      priceCents: effectivePriceCents(
+        { priceCents: row.price_cents, tagColor: row.tag_color, intakeDate: row.intake_date },
+        markdownRules
+      ),
+      retailEstimateCents: row.retail_estimate_cents,
+    })),
+  });
+});
+
+/* ─── Impact export ─────────────────────────────────────────────────────── */
+
+/**
+ * Grant and board reporting, as a file.
+ *
+ * This lives here rather than on the impact page's loader on purpose: in
+ * framework mode a returned Response is treated as loader data and a thrown 2xx
+ * lands in the error boundary, so neither delivers a download. A resource
+ * endpoint is the shape that actually works.
+ */
+api.get("/api/impact.csv", async (c) => {
+  const user = await getUser(c.req.raw, c.env.DB);
+  if (!user) return json({ error: "Please sign in first." }, 401);
+
+  const months = await all<{
+    period_start: string;
+    diversion_lbs: number;
+    items_rehomed: number;
+    value_delivered_cents: number;
+    volunteer_hours: number;
+    revenue_cents: number;
+    donations_received: number;
+  }>(
+    c.env.DB,
+    `SELECT period_start, diversion_lbs, items_rehomed, value_delivered_cents,
+            volunteer_hours, revenue_cents, donations_received
+       FROM impact_metrics
+      WHERE org_id = ? AND period_kind = 'month'
+      ORDER BY period_start DESC LIMIT 120`,
+    user.orgId
+  );
+
+  const csv = toCsv(
+    months.map((m) => ({
+      month: m.period_start.slice(0, 7),
+      diversion_lbs: Math.round(m.diversion_lbs),
+      items_rehomed: m.items_rehomed,
+      value_delivered_usd: (m.value_delivered_cents / 100).toFixed(2),
+      volunteer_hours: Math.round(m.volunteer_hours),
+      donations_received: m.donations_received,
+      revenue_usd: (m.revenue_cents / 100).toFixed(2),
+    }))
+  );
+
+  return new Response(csv || "month\r\n", {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="impact-${new Date().toISOString().slice(0, 10)}.csv"`,
+    },
+  });
+});
+
+/* ─── NRI ───────────────────────────────────────────────────────────────── */
+
+/** Dismissing is a human override, recorded as one. Nothing is deleted. */
+api.post("/api/nri/signals/:id/dismiss", async (c) => {
+  const user = await getUser(c.req.raw, c.env.DB);
+  if (!user) return json({ error: "Please sign in first." }, 401);
+
+  await run(
+    c.env.DB,
+    `UPDATE nri_signals SET dismissed_at = datetime('now'), dismissed_by = ?
+      WHERE id = ? AND org_id = ? AND dismissed_at IS NULL`,
+    user.id,
+    c.req.param("id"),
+    user.orgId
+  );
+
+  return json({ ok: true });
+});
+
+/* ─── Public contact form ───────────────────────────────────────────────── */
+
+/**
+ * Layered defenses. Spam is accepted with the same cheerful "thanks!" and then
+ * dropped — a bot that gets an error learns how to get past you next time.
+ */
+api.post("/api/contact", async (c) => {
+  const ip = clientIp(c.req.raw);
+  const limit = await rateLimit(c.env.KV, `contact:${ip}`, LIMITS.publicForm);
+  await recordAttempt(c.env.KV, `contact:${ip}`, LIMITS.publicForm);
+
+  const form = await c.req.formData();
+  const name = String(form.get("name") ?? "").trim();
+  const email = String(form.get("email") ?? "").trim();
+  const message = String(form.get("message") ?? "").trim();
+  const honeypot = String(form.get("company_website") ?? "");
+  const renderedAt = parseInt(String(form.get("rendered_at") ?? ""), 10);
+
+  const verdict = scoreSpam({ name, email, message, honeypot, renderedAt, now: Date.now() });
+
+  if (!limit.allowed || verdict.isSpam) {
+    console.info("contact form dropped:", verdict.reasons.join(", ") || "rate limited");
+    return json({ ok: true, message: "Thanks — we'll be in touch." });
+  }
+
+  if (!name || !email || !message) {
+    return json({ error: "We need your name, a real email, and a message. That's all." }, 400);
+  }
+
+  console.info("contact form:", { name, email, message: message.slice(0, 500) });
+  return json({ ok: true, message: "Thanks — we'll be in touch." });
+});
+
+/* ─── One-click unsubscribe ─────────────────────────────────────────────── */
+
+api.get("/api/unsubscribe", async (c) => {
+  const orgId = c.req.query("org");
+  const email = c.req.query("email");
+  if (!orgId || !email) return c.text("That link looks incomplete.", 400);
+
+  await suppress(c.env.DB, orgId, email);
+  await run(
+    c.env.DB,
+    `UPDATE contacts SET is_subscribed = 0 WHERE org_id = ? AND email = ?`,
+    orgId,
+    email.toLowerCase()
+  );
+
+  return c.html(
+    `<div style="font-family:system-ui;max-width:480px;margin:80px auto;text-align:center;line-height:1.6">
+       <h1 style="font-size:20px">You're unsubscribed.</h1>
+       <p style="color:#555">We won't email you again. No hard feelings — thanks for everything.</p>
+     </div>`
+  );
+});
+
+/* ─── Versioned REST ────────────────────────────────────────────────────── */
+
+api.get("/api/v1/items", async (c) => {
+  const user = await getUser(c.req.raw, c.env.DB);
+  if (!user) return json({ error: "Please sign in first." }, 401);
+
+  const limit = Math.min(100, parseInt(c.req.query("limit") ?? "50", 10) || 50);
+  const since = c.req.query("since");
+
+  const rows = await all(
+    c.env.DB,
+    `SELECT id, title, category, brand, color, size, condition, price_cents, tag_color,
+            intake_date, status, updated_at
+       FROM items
+      WHERE org_id = ? ${since ? "AND updated_at > ?" : ""}
+      ORDER BY updated_at DESC
+      LIMIT ?`,
+    ...(since ? [user.orgId, since, limit] : [user.orgId, limit])
+  );
+
+  return json({ items: rows, count: rows.length });
+});
+
+api.all("/api/*", (c) => json({ error: "Not found" }, 404));

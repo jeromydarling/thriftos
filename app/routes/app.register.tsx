@@ -1,0 +1,401 @@
+import { useCallback, useEffect, useState } from "react";
+import type { Route } from "./+types/app.register";
+import { requireUser } from "../lib/auth";
+import { first, parseSettings } from "../lib/db";
+import { envFrom } from "../lib/env";
+import { Badge, Button, Card, Input, Notice, money } from "../components/ui";
+import { TAG_COLOR_HEX } from "../lib/markdown";
+import { enqueue, flush, newOfflineId, queued, type QueuedLine } from "../lib/offline";
+
+export function meta() {
+  return [{ title: "Register | ThriftOS" }];
+}
+
+export async function loader({ request, context }: Route.LoaderArgs) {
+  const env = envFrom(context);
+  const user = await requireUser(request, env.DB);
+
+  const org = await first<{ settings_json: string; name: string }>(
+    env.DB,
+    `SELECT settings_json, name FROM orgs WHERE id = ?`,
+    user.orgId
+  );
+  const settings = parseSettings(org?.settings_json);
+
+  return {
+    orgName: org?.name ?? "",
+    taxRateBps: Number(settings.taxRateBps ?? 0),
+    roundUpEnabled: settings.roundUpEnabled !== false,
+    roundUpCause: String(settings.roundUpCause ?? "our community programs"),
+    stripeLive: Boolean(env.STRIPE_SECRET_KEY),
+  };
+}
+
+interface LookupItem {
+  id: string;
+  title: string;
+  tagNumber: string | null;
+  category: string | null;
+  tagColor: string | null;
+  listPriceCents: number;
+  priceCents: number;
+  retailEstimateCents: number;
+}
+
+interface CartLine extends QueuedLine {
+  key: string;
+  tagColor?: string | null;
+  listPriceCents?: number;
+}
+
+export default function Register({ loaderData }: Route.ComponentProps) {
+  const { taxRateBps, roundUpEnabled, roundUpCause, stripeLive } = loaderData;
+
+  const [cart, setCart] = useState<CartLine[]>([]);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<LookupItem[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [roundUp, setRoundUp] = useState(roundUpEnabled);
+  const [taxExempt, setTaxExempt] = useState(false);
+  const [online, setOnline] = useState(true);
+  const [pending, setPending] = useState(0);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  // Connection state drives the banner, not the behaviour: the register works
+  // the same either way.
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    update();
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+
+  const refreshPending = useCallback(async () => {
+    setPending((await queued()).length);
+  }, []);
+
+  useEffect(() => {
+    void refreshPending();
+  }, [refreshPending]);
+
+  // Flush whenever we're online, and on a slow tick in case an event was missed.
+  useEffect(() => {
+    if (!online) return;
+    let cancelled = false;
+
+    const run = async () => {
+      const result = await flush();
+      if (cancelled) return;
+      if (result.synced > 0) setFlash(`${result.synced} queued ${result.synced === 1 ? "sale" : "sales"} synced.`);
+      await refreshPending();
+    };
+
+    void run();
+    const timer = setInterval(run, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [online, refreshPending]);
+
+  async function search(term: string) {
+    setQuery(term);
+    if (term.trim().length < 2) {
+      setResults([]);
+      return;
+    }
+    setSearching(true);
+    try {
+      const res = await fetch(`/api/pos/lookup?q=${encodeURIComponent(term)}`);
+      if (res.ok) {
+        const data = (await res.json()) as { items: LookupItem[] };
+        setResults(data.items ?? []);
+      }
+    } catch {
+      // Offline: lookup is unavailable, but manual entry below still works.
+      setResults([]);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function addItem(item: LookupItem) {
+    setCart((c) => [
+      ...c,
+      {
+        key: `${item.id}-${Date.now()}`,
+        itemId: item.id,
+        title: item.title,
+        priceCents: item.priceCents,
+        retailEstimateCents: item.retailEstimateCents,
+        tagColor: item.tagColor,
+        listPriceCents: item.listPriceCents,
+      },
+    ]);
+    setQuery("");
+    setResults([]);
+  }
+
+  function addManual(dollars: string) {
+    const amount = parseFloat(dollars);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    setCart((c) => [
+      ...c,
+      { key: `manual-${Date.now()}`, title: "Item", priceCents: Math.round(amount * 100) },
+    ]);
+  }
+
+  const subtotal = cart.reduce((sum, line) => sum + line.priceCents, 0);
+  const tax = taxExempt ? 0 : Math.round((subtotal * taxRateBps) / 10_000);
+  const beforeRoundUp = subtotal + tax;
+  // Round up to the next whole dollar — never a fixed "suggested donation".
+  const roundUpCents =
+    roundUp && beforeRoundUp > 0 && beforeRoundUp % 100 !== 0 ? 100 - (beforeRoundUp % 100) : 0;
+  const total = beforeRoundUp + roundUpCents;
+
+  async function complete(tender: string) {
+    if (cart.length === 0) return;
+
+    const sale = {
+      offlineId: newOfflineId(),
+      lines: cart.map(({ itemId, title, priceCents, retailEstimateCents }) => ({
+        itemId,
+        title,
+        priceCents,
+        retailEstimateCents,
+      })),
+      subtotalCents: subtotal,
+      taxCents: tax,
+      roundupCents: roundUpCents,
+      totalCents: total,
+      tender,
+      taxExempt,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Queue first, always. The sale is safe on the device before anything
+    // touches the network — that ordering is the whole point.
+    await enqueue(sale);
+    setCart([]);
+    setTaxExempt(false);
+    setRoundUp(roundUpEnabled);
+    setFlash(`${money(total)} — thank you.`);
+    await refreshPending();
+
+    if (navigator.onLine) {
+      await flush();
+      await refreshPending();
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-display text-3xl text-bark">Register</h1>
+        <div className="flex items-center gap-2 text-sm">
+          {online ? (
+            <Badge color="#2F6F5E">Online</Badge>
+          ) : (
+            <Badge color="#B8543F">Offline — still selling</Badge>
+          )}
+          {pending > 0 ? (
+            <Badge color="#B8860B">{pending} waiting to sync</Badge>
+          ) : null}
+        </div>
+      </div>
+
+      {!online ? (
+        <Notice tone="warn">
+          No connection right now. Keep ringing sales up — they're saved on this device and
+          will sync themselves the moment you're back.
+        </Notice>
+      ) : null}
+
+      {flash ? <Notice tone="good">{flash}</Notice> : null}
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_22rem]">
+        <div className="space-y-4">
+          <Card>
+            <label htmlFor="lookup" className="mb-1.5 block text-sm font-medium text-bark">
+              Scan a tag or search
+            </label>
+            <Input
+              id="lookup"
+              value={query}
+              onChange={(e) => search(e.target.value)}
+              placeholder="Tag number, or part of the name"
+              autoFocus
+            />
+
+            {searching ? <p className="mt-2 text-xs text-slate-soft">Looking…</p> : null}
+
+            {results.length > 0 ? (
+              <ul className="mt-3 divide-y divide-line">
+                {results.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => addItem(item)}
+                      className="touch-target flex w-full items-center justify-between gap-3 px-1 py-3 text-left hover:bg-linen"
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span
+                          className="inline-block h-3 w-3 shrink-0 rounded-full border border-line"
+                          style={{ backgroundColor: TAG_COLOR_HEX[item.tagColor ?? ""] ?? "#ddd" }}
+                        />
+                        <span className="truncate text-bark">{item.title}</span>
+                      </span>
+                      <span className="shrink-0 text-right">
+                        <span className="block font-medium text-bark">{money(item.priceCents)}</span>
+                        {item.priceCents < item.listPriceCents ? (
+                          <span className="block text-xs text-clay line-through">
+                            {money(item.listPriceCents)}
+                          </span>
+                        ) : null}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+
+            <div className="mt-4 flex items-end gap-2 border-t border-line pt-4">
+              <div className="flex-1">
+                <label htmlFor="manual" className="mb-1.5 block text-sm font-medium text-bark">
+                  Or just type a price
+                </label>
+                <Input
+                  id="manual"
+                  type="number"
+                  step="0.25"
+                  min="0"
+                  placeholder="0.00"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      addManual((e.target as HTMLInputElement).value);
+                      (e.target as HTMLInputElement).value = "";
+                    }
+                  }}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  const el = document.getElementById("manual") as HTMLInputElement | null;
+                  if (el) {
+                    addManual(el.value);
+                    el.value = "";
+                  }
+                }}
+              >
+                Add
+              </Button>
+            </div>
+          </Card>
+
+          <Card>
+            <h2 className="font-display text-lg text-bark">Cart</h2>
+            {cart.length === 0 ? (
+              <p className="mt-3 text-sm text-slate-soft">Nothing yet.</p>
+            ) : (
+              <ul className="mt-3 divide-y divide-line">
+                {cart.map((line) => (
+                  <li key={line.key} className="flex items-center justify-between gap-3 py-3">
+                    <span className="min-w-0 truncate text-bark">{line.title}</span>
+                    <span className="flex shrink-0 items-center gap-3">
+                      <span className="font-medium text-bark">{money(line.priceCents)}</span>
+                      <button
+                        type="button"
+                        onClick={() => setCart((c) => c.filter((l) => l.key !== line.key))}
+                        className="text-xs text-slate-soft underline underline-offset-2 hover:text-clay"
+                      >
+                        remove
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
+
+        <Card className="h-fit">
+          <dl className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <dt className="text-slate-soft">Subtotal</dt>
+              <dd className="text-bark">{money(subtotal)}</dd>
+            </div>
+            {taxRateBps > 0 ? (
+              <div className="flex justify-between">
+                <dt className="text-slate-soft">Tax</dt>
+                <dd className="text-bark">{taxExempt ? "exempt" : money(tax)}</dd>
+              </div>
+            ) : null}
+            {roundUpCents > 0 ? (
+              <div className="flex justify-between">
+                <dt className="text-slate-soft">Rounded up</dt>
+                <dd className="text-moss">{money(roundUpCents)}</dd>
+              </div>
+            ) : null}
+            <div className="flex justify-between border-t border-line pt-2 text-lg">
+              <dt className="font-medium text-bark">Total</dt>
+              <dd className="font-display text-bark">{money(total)}</dd>
+            </div>
+          </dl>
+
+          <div className="mt-4 space-y-2 border-t border-line pt-4 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={roundUp}
+                onChange={(e) => setRoundUp(e.target.checked)}
+                className="h-4 w-4"
+              />
+              <span className="text-bark">Round up for {roundUpCause}</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={taxExempt}
+                onChange={(e) => setTaxExempt(e.target.checked)}
+                className="h-4 w-4"
+              />
+              <span className="text-bark">Tax exempt</span>
+            </label>
+          </div>
+
+          <div className="mt-4 space-y-2 border-t border-line pt-4">
+            <Button
+              type="button"
+              className="w-full"
+              disabled={cart.length === 0}
+              onClick={() => complete("cash")}
+            >
+              Cash
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              disabled={cart.length === 0}
+              onClick={() => complete("card")}
+            >
+              Card
+            </Button>
+            {!stripeLive ? (
+              <p className="text-xs leading-relaxed text-slate-soft">
+                Card sales are recorded but not charged — Stripe isn't connected yet. Cash
+                works fully.
+              </p>
+            ) : null}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}

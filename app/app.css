@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bark: #2f2a26;
+  --color-linen: #f7f5f1;
+  --color-moss: #2f6f5e;
+  --color-moss-deep: #245646;
+  --color-amber: #e4a33c;
+  --color-clay: #b8543f;
+  --color-slate-soft: #6b7280;
+  --color-line: #e5e1da;
+
+  --font-display: Georgia, "Times New Roman", serif;
+}
+
+html,
+body {
+  background: var(--color-linen);
+  color: var(--color-bark);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Big touch targets. A volunteer on their third day should not have to aim. */
+.touch-target {
+  min-height: 3rem;
+  min-width: 3rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

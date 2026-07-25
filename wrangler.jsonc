@@ -1,0 +1,54 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "thriftos",
+  "main": "./workers/app.ts",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "placement": { "mode": "smart" },
+
+  "assets": {
+    "directory": "./build/client"
+  },
+
+  "vars": {
+    "APP_NAME": "ThriftOS",
+    "APP_URL": "https://thriftos.jeromydarling.workers.dev",
+    "DEMO_ORG_SLUG": "demo"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "thriftos-db",
+      "database_id": "66a2c50f-659e-420d-9391-7a79f1a80952",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "thriftos-media"
+    }
+  ],
+
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "e02bf163f64242588f0a1c2b71947037"
+    }
+  ],
+
+  "ai": {
+    "binding": "AI"
+  },
+
+  "images": {
+    "binding": "IMAGES"
+  },
+
+  "triggers": {
+    "crons": ["17 7 * * *", "23 6 * * 1"]
+  }
+}

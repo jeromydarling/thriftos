@@ -1,0 +1,39 @@
+{
+  "name": "thriftos",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "react-router dev",
+    "build": "react-router build",
+    "preview": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "typecheck": "react-router typegen && tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "cf-typegen": "wrangler types",
+    "db:local": "wrangler d1 migrations apply thriftos-db --local",
+    "db:remote": "wrangler d1 migrations apply thriftos-db --remote"
+  },
+  "dependencies": {
+    "hono": "^4.12.32",
+    "isbot": "^5.1.31",
+    "pdf-lib": "^1.17.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router": "^8.3.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.17.0",
+    "@react-router/dev": "^8.3.0",
+    "@tailwindcss/vite": "^4.1.18",
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.114.0"
+  }
+}
