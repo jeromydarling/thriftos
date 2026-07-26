@@ -1,4 +1,4 @@
-import { Form, redirect, useNavigation } from "react-router";
+import { Form, Link, redirect, useNavigation } from "react-router";
 import type { Route } from "./+types/app.settings";
 import { requireRole, requireUser } from "../lib/auth";
 import { all, first, run } from "../lib/db";
@@ -334,6 +334,20 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
       <div id="payments" className="scroll-mt-8">
         <ConnectPanel initial={connect} testMode={testMode} />
       </div>
+
+      <Card>
+        <h2 className="font-display text-lg text-bark">Your data</h2>
+        <p className="mt-2 leading-relaxed text-slate-soft">
+          Everything you've put in here is yours, and you can take all of it whenever you like —
+          including if a payment to us has failed. Nothing about leaving requires asking us first.
+        </p>
+        <Link
+          to="/app/export"
+          className="mt-3 inline-block text-moss underline underline-offset-2"
+        >
+          Export your data
+        </Link>
+      </Card>
 
       <Card>
         <h2 className="font-display text-lg text-bark">Your plan</h2>

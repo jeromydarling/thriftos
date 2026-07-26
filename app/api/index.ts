@@ -14,6 +14,8 @@ import { findOrCreateContact } from "../lib/contacts";
 import { effectivePriceCents, DEFAULT_MARKDOWN_RULES } from "../lib/markdown";
 import { suppress } from "../lib/email";
 import { toCsv } from "../lib/impact";
+import { buildExport, EXPORTS } from "../lib/export";
+import { buildZip } from "../lib/zip";
 import type { AppEnv } from "../lib/env";
 import { scoreSpam } from "../lib/spam";
 import { connect } from "./connect";
@@ -481,6 +483,67 @@ api.get("/api/impact.csv", async (c) => {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="impact-${new Date().toISOString().slice(0, 10)}.csv"`,
+    },
+  });
+});
+
+/* ─── Data export ───────────────────────────────────────────────────────── */
+
+/**
+ * Take everything and go.
+ *
+ * Always available, deliberately — including to a shop whose card has failed.
+ * "No lock-in" is the loudest claim this product makes, and a billing state
+ * that blocks the exit would make it a lie.
+ */
+api.get("/api/export/:kind", async (c) => {
+  const user = await getUser(c.req.raw, c.env.DB);
+  if (!user) return json({ error: "Please sign in first." }, 401);
+
+  const kind = c.req.param("kind");
+  const stamp = new Date().toISOString().slice(0, 10);
+
+  // The whole archive.
+  if (kind === "all") {
+    const files = await Promise.all(
+      EXPORTS.map(async (spec) => ({
+        name: spec.filename,
+        content: await buildExport(c.env.DB, user.orgId, spec.kind),
+      }))
+    );
+
+    files.push({
+      name: "README.txt",
+      content:
+        `Export from ThriftOS for ${user.orgName}\n` +
+        `Taken ${new Date().toISOString()}\n\n` +
+        `Every file is CSV with a header row. Money appears twice: as integer\n` +
+        `cents (exact) and as dollars with two decimals (readable). Where the\n` +
+        `two disagree, the cents are right.\n\n` +
+        `Sample data is not included — it was never yours.\n\n` +
+        EXPORTS.map((s) => `${s.filename.padEnd(24)} ${s.description}`).join("\n") +
+        `\n`,
+    });
+
+    // Sliced to a plain ArrayBuffer: a Uint8Array view isn't a BodyInit.
+    const zip = buildZip(files);
+    const body = zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength) as ArrayBuffer;
+    return new Response(body, {
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="thriftos-export-${stamp}.zip"`,
+      },
+    });
+  }
+
+  const spec = EXPORTS.find((e) => e.kind === kind);
+  if (!spec) return json({ error: "There's no export by that name." }, 404);
+
+  const csv = await buildExport(c.env.DB, user.orgId, spec.kind);
+  return new Response(csv || "\r\n", {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${spec.filename.replace(".csv", "")}-${stamp}.csv"`,
     },
   });
 });
