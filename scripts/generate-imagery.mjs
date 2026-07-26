@@ -65,7 +65,7 @@ async function accountId() {
  * Passing the FormData through a Response is what produces the boundary in the
  * Content-Type header; sending the FormData directly does not.
  */
-async function generate(account, shot) {
+async function generate(account, shot, attempt = 1) {
   const form = new FormData();
   form.append("prompt", shot.prompt);
   form.append("width", String(shot.width));
@@ -77,6 +77,15 @@ async function generate(account, shot) {
     headers: { Authorization: `Bearer ${token}` },
     body: form,
   });
+
+  // A busy GPU or a rate limit shouldn't cost a shot for the whole run. Only
+  // retry what retrying can fix: a 401 or a 400 will say the same thing twice.
+  if ((res.status >= 500 || res.status === 429) && attempt < 3) {
+    const wait = attempt * 5000;
+    console.log(`  ${shot.id} — ${res.status}, retrying in ${wait / 1000}s`);
+    await new Promise((r) => setTimeout(r, wait));
+    return generate(account, shot, attempt + 1);
+  }
 
   const type = res.headers.get("content-type") ?? "";
 
