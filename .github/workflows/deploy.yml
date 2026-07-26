@@ -1,0 +1,87 @@
+# Deploy ThriftOS to Cloudflare Workers.
+#
+# The order here is the point: check, then migrate, then deploy. A deploy that
+# ships code needing a table the database hasn't got is an outage, and the
+# cheapest place to catch a broken build is before anything reaches production.
+#
+# Needs one repository secret, CLOUDFLARE_API_TOKEN, with Workers Scripts
+# Edit and D1 Edit on the account that owns the thriftos worker.
+# CLOUDFLARE_ACCOUNT_ID is only required if the token can see more than one
+# account; wrangler infers it otherwise.
+
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+      # The branch the work currently lives on. Remove this once main is the
+      # source of truth — until then, a push here is the only thing that ships.
+      - claude/thrift-os-nri-mvp-y39204
+  workflow_dispatch:
+
+# One deploy at a time. Two overlapping pushes racing to wrangler deploy is
+# how a worker ends up running the older of the two commits.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Fail early if the token is missing
+        # Without this, wrangler's failure is an authentication error forty
+        # lines into a build log rather than a sentence at the top.
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN is not set on this repository. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # Before the deploy, deliberately. Adding a column is safe against the
+      # old code; the new code referencing a column that isn't there is not.
+      - name: Apply database migrations
+        run: npx wrangler d1 migrations apply thriftos-db --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Check the deployed site answers
+        # A green deploy step means the upload succeeded, not that the worker
+        # runs. These are the three routes that would catch a broken bundle.
+        run: |
+          base="https://thriftos.jeromydarling.workers.dev"
+          fail=0
+          for path in / /pricing /help; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$base$path")
+            echo "$path → $code"
+            [ "$code" = "200" ] || fail=1
+          done
+          exit $fail
