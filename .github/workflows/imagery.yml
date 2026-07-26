@@ -131,6 +131,17 @@ jobs:
           The demo set is deliberately unflattering. Those are back-room
           snapshots, and they are the input to the cleanup rather than a
           showcase of it."
+          # Rebase before pushing. This job checks the branch out when it
+          # starts and can be drawing for ten minutes; anything pushed in the
+          # meantime makes a plain push non-fast-forward, and the run's whole
+          # output is thrown away with it. Rebasing is safe here because the
+          # only thing this commit touches is images nobody else writes.
+          for attempt in 1 2 3; do
+            git pull --rebase origin ${{ github.ref_name }} && break
+            echo "rebase attempt $attempt failed, retrying"
+            git rebase --abort || true
+            sleep $((attempt * 5))
+          done
           git push origin HEAD:${{ github.ref_name }}
         env:
           SHOTS: ${{ inputs.shots }}
