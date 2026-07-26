@@ -15,9 +15,9 @@
  * secret to keep in step. The token needs Workers AI read/write on top of
  * whatever the deploy uses.
  */
-import { mkdirSync, existsSync, writeFileSync, statSync, rmSync } from "node:fs";
+import { mkdirSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
+import sharp from "sharp";
 
 const MODEL = "@cf/black-forest-labs/flux-2-dev";
 const STEPS = 28;
@@ -128,20 +128,22 @@ async function generate(account, shot, attempt = 1) {
   return Buffer.from(await res.arrayBuffer());
 }
 
-/** Recompress to JPEG. A megabyte of PNG on a marketing page is not acceptable. */
-function toJpeg(pngPath, jpegPath) {
-  for (const [cmd, args] of [
-    ["magick", [pngPath, "-quality", "82", "-strip", "-interlace", "Plane", jpegPath]],
-    ["convert", [pngPath, "-quality", "82", "-strip", "-interlace", "Plane", jpegPath]],
-  ]) {
-    try {
-      execFileSync(cmd, args, { stdio: "pipe" });
-      return true;
-    } catch {
-      /* try the next one */
-    }
-  }
-  return false;
+/**
+ * Recompress to a web-weight JPEG.
+ *
+ * Not optional. The model hands back roughly 780 KB per image — three
+ * megabytes of photography on a marketing page whose whole argument is that
+ * it's lighter than what a shop is currently paying for. At quality 80 the
+ * same pictures come out around 80 KB with the grain and halation intact,
+ * which is the part that has to survive.
+ *
+ * sharp rather than a shell tool: the first run reached for ImageMagick,
+ * found neither `magick` nor `convert` on the runner, and silently kept
+ * 780 KB files named .png that were actually JPEG bytes.
+ */
+async function compress(bytes, jpegPath) {
+  await sharp(bytes).jpeg({ quality: 80, progressive: true, mozjpeg: true }).toFile(jpegPath);
+  return statSync(jpegPath).size;
 }
 
 const shots = await loadShots();
@@ -175,15 +177,8 @@ async function draw(shot) {
   const jpeg = join(OUT_DIR, `${shot.id}.jpg`);
   try {
     const bytes = await generate(account, shot);
-    const png = join(OUT_DIR, `${shot.id}.png`);
-    writeFileSync(png, bytes);
-
-    if (toJpeg(png, jpeg)) {
-      console.log(`✓ ${shot.id} — ${Math.round(statSync(jpeg).size / 1024)} KB`);
-      rmSync(png, { force: true });
-    } else {
-      console.log(`✓ ${shot.id} — kept as PNG, no image tool available to recompress`);
-    }
+    const size = await compress(bytes, jpeg);
+    console.log(`✓ ${shot.id} — ${Math.round(size / 1024)} KB`);
   } catch (err) {
     failed++;
     const reason = err instanceof Error ? err.message : String(err);
