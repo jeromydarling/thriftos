@@ -99,7 +99,16 @@ export function validateHostname(raw: string, appHost: string): { ok: boolean; r
   }
 
   const app = appHost.replace(/^https?:\/\//, "").replace(/:\d+$/, "").toLowerCase();
-  if (app && (hostname === app || hostname.endsWith(`.${app}`))) {
+  // The second test is not redundant with the first: APP_URL has been wrong in
+  // production before, and a wrong APP_URL must not be the only thing standing
+  // between a shop and claiming the hostname the platform answers on. Nothing
+  // on workers.dev can be a custom hostname anyway — Cloudflare for SaaS needs
+  // a zone, and workers.dev isn't ours.
+  if (
+    (app && (hostname === app || hostname.endsWith(`.${app}`))) ||
+    hostname === "workers.dev" ||
+    hostname.endsWith(".workers.dev")
+  ) {
     return {
       ok: false,
       reason: "That's a ThriftOS address. Use a domain you own — your ThriftOS address already works.",

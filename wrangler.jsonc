@@ -13,7 +13,7 @@
 
   "vars": {
     "APP_NAME": "ThriftOS",
-    "APP_URL": "https://thriftos.jeromydarling.workers.dev",
+    "APP_URL": "https://thriftos.jer-f84.workers.dev",
     "DEMO_ORG_SLUG": "second-chances"
   },
 

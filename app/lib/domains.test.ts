@@ -77,6 +77,14 @@ describe("validateHostname", () => {
     expect(validateHostname("localhost.dev", "http://localhost.dev:5173").ok).toBe(false);
   });
 
+  it("refuses workers.dev even when APP_URL is wrong", () => {
+    // APP_URL has been wrong in production, so it must not be the only thing
+    // standing between a shop and the hostname the platform answers on.
+    for (const raw of ["thriftos.jer-f84.workers.dev", "anything.workers.dev", "workers.dev"]) {
+      expect(validateHostname(raw, "https://wrong-host.example").ok, raw).toBe(false);
+    }
+  });
+
   it("does not reject a domain that merely ends in the same letters", () => {
     // 'notthriftos.app' ends with 'thriftos.app' as a string but is a
     // different domain, and a shop that owns it must be able to use it.

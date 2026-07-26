@@ -1,8 +1,7 @@
 import type { Route } from "./+types/shop";
 import { envFrom } from "../lib/env";
-import { loadStorefrontPage, resolveShop } from "../lib/storefront";
-import { Blocks, SiteNav } from "../components/blocks";
-import { jsonLd, storeSchema } from "../lib/seo";
+import { loadStorefrontPage, shopForHostname, shopForSlug } from "../lib/storefront";
+import { ShopNotFound, Storefront } from "../components/storefront";
 
 export function meta({ loaderData }: Route.MetaArgs) {
   // React Router hands meta() `loaderData`, not `data`.
@@ -29,26 +28,22 @@ export function meta({ loaderData }: Route.MetaArgs) {
 export async function loader({ params, request, context }: Route.LoaderArgs) {
   const env = envFrom(context);
   const url = new URL(request.url);
-  const appHost = (env.APP_URL ?? "").replace(/^https?:\/\//, "");
 
   const first = params.slug ?? "";
   const second = params.page ?? "";
 
-  // On a custom hostname the first segment is a page, not a shop.
-  const onCustomHost =
-    url.hostname !== appHost.replace(/:\d+$/, "") &&
-    url.hostname !== "localhost" &&
-    url.hostname !== "127.0.0.1";
-
-  const shop = await resolveShop(env.DB, {
-    hostname: url.hostname,
-    slug: onCustomHost ? null : first,
-    appHost,
-  });
+  // Ask the database whether this hostname belongs to a shop, rather than
+  // asking configuration whether it's one of ours. A hostname that matches an
+  // active custom domain can only mean one shop, and its first path segment is
+  // a page; anything else is our own address, where the first segment is the
+  // shop. Getting this from data rather than from APP_URL is what stops a
+  // wrong hostname in config from 404-ing every storefront at once.
+  const byHostname = await shopForHostname(env.DB, url.hostname);
+  const shop = byHostname ?? (await shopForSlug(env.DB, first));
 
   if (!shop) throw new Response("Not found", { status: 404 });
 
-  const pageSlug = onCustomHost ? first : second;
+  const pageSlug = byHostname ? first : second;
   const page = await loadStorefrontPage(env.DB, shop, pageSlug);
 
   if (!page) throw new Response("Not found", { status: 404 });
@@ -69,69 +64,9 @@ export function headers() {
 }
 
 export default function Shop({ loaderData }: Route.ComponentProps) {
-  const { shop, palette, fonts, blocks, data, nav, isDraft } = loaderData;
-
-  return (
-    <div style={{ background: palette.surface, minHeight: "100vh", fontFamily: fonts.body }}>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={jsonLd([
-          storeSchema({
-            name: data.shopName,
-            street: data.addressLines[0] ?? null,
-            city: null,
-            state: null,
-            postalCode: null,
-            phone: data.phone,
-            slug: shop.slug,
-          }),
-        ])}
-      />
-
-      {isDraft ? (
-        <p className="bg-amber/25 px-4 py-2 text-center text-sm text-bark">
-          This page is a draft. Only you can see it.
-        </p>
-      ) : null}
-
-      <SiteNav
-        base={shop.base}
-        pages={nav}
-        palette={palette}
-        fonts={fonts}
-        shopName={data.shopName}
-      />
-
-      <main>
-        <Blocks blocks={blocks} data={data} palette={palette} fonts={fonts} />
-      </main>
-
-      <footer
-        className="mx-auto max-w-5xl px-4 py-10 text-xs"
-        style={{ borderTop: `1px solid ${palette.primary}22`, color: palette.bodyText }}
-      >
-        <p>
-          {data.shopName}
-          {data.addressLines.length > 0 ? ` · ${data.addressLines.join(", ")}` : ""}
-        </p>
-        <p className="mt-1">
-          Prices shown are today's — tags step down as items age. Everything is one of a kind.
-        </p>
-      </footer>
-    </div>
-  );
+  return <Storefront page={loaderData} />;
 }
 
 export function ErrorBoundary() {
-  return (
-    <main className="mx-auto max-w-md px-4 py-24 text-center">
-      <h1 className="font-display text-2xl text-bark">We can't find that shop</h1>
-      <p className="mt-3 text-sm leading-relaxed text-slate-soft">
-        The address may have been mistyped, or the shop may have moved. Nothing else is affected.
-      </p>
-      <a href="/" className="mt-6 inline-block text-moss underline underline-offset-2">
-        Go to ThriftOS
-      </a>
-    </main>
-  );
+  return <ShopNotFound />;
 }

@@ -23,39 +23,48 @@ export interface ResolvedShop {
 }
 
 /**
- * Which shop is this request for?
+ * A shop reached on its own hostname, or null if this isn't one.
  *
- * A verified custom hostname wins, because a request arriving on a shop's own
- * domain can only mean one shop. Only `active` domains resolve — a hostname
- * still being provisioned must not serve a half-configured page.
+ * Deciding "is this a custom hostname?" by asking the database rather than by
+ * comparing against a configured APP_URL is deliberate, and it is the whole
+ * lesson of the first production deploy: APP_URL said
+ * thriftos.jeromydarling.workers.dev and the worker actually answered on
+ * thriftos.jer-f84.workers.dev, so every request looked like a custom hostname,
+ * the first path segment was read as a page instead of a shop, and every shop's
+ * page 404'd. A wrong hostname in configuration should cost us custom domains,
+ * not every storefront we serve.
+ *
+ * Only `active` domains resolve — a hostname still being provisioned must not
+ * serve a half-configured page.
  */
-export async function resolveShop(
+export async function shopForHostname(
   db: D1Database,
-  opts: { hostname: string; slug: string | null; appHost: string }
+  hostname: string
 ): Promise<ResolvedShop | null> {
-  const host = opts.hostname.toLowerCase().replace(/:\d+$/, "");
-  const appHost = opts.appHost.toLowerCase().replace(/^https?:\/\//, "").replace(/:\d+$/, "");
+  const host = hostname.toLowerCase().replace(/:\d+$/, "");
+  if (!host) return null;
 
-  if (host && host !== appHost && host !== "localhost") {
-    const domain = await first<{ org_id: string; slug: string; name: string }>(
-      db,
-      `SELECT d.org_id, o.slug, o.name
-         FROM custom_domains d
-         JOIN orgs o ON o.id = d.org_id
-        WHERE d.hostname = ? AND d.status = 'active' AND o.status = 'active'`,
-      host
-    );
-    if (domain) {
-      return { orgId: domain.org_id, slug: domain.slug, name: domain.name, base: "" };
-    }
-  }
+  const domain = await first<{ org_id: string; slug: string; name: string }>(
+    db,
+    `SELECT d.org_id, o.slug, o.name
+       FROM custom_domains d
+       JOIN orgs o ON o.id = d.org_id
+      WHERE d.hostname = ? AND d.status = 'active' AND o.status = 'active'`,
+    host
+  );
+  if (!domain) return null;
 
-  if (!opts.slug) return null;
+  return { orgId: domain.org_id, slug: domain.slug, name: domain.name, base: "" };
+}
+
+/** A shop reached at /{slug} on our own address. */
+export async function shopForSlug(db: D1Database, slug: string): Promise<ResolvedShop | null> {
+  if (!slug) return null;
 
   const org = await first<{ id: string; slug: string; name: string }>(
     db,
     `SELECT id, slug, name FROM orgs WHERE slug = ? AND status = 'active'`,
-    opts.slug.toLowerCase()
+    slug.toLowerCase()
   );
   if (!org) return null;
 

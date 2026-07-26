@@ -75,12 +75,23 @@ jobs:
 
       - name: Check the deployed site answers
         # A green deploy step means the upload succeeded, not that the worker
-        # runs. These are the three routes that would catch a broken bundle.
+        # runs. The shop page is in this list deliberately: the first deploy
+        # had an APP_URL pointing at a hostname that didn't exist, which 404'd
+        # every storefront while the marketing pages carried on answering 200.
+        #
+        # The base URL is read from the same APP_URL the worker uses, so this
+        # check tests the value the app actually runs on rather than a second
+        # copy of it that can drift.
         run: |
-          base="https://thriftos.jeromydarling.workers.dev"
+          base=$(node -e "
+            const s = require('fs').readFileSync('wrangler.jsonc','utf8')
+              .replace(/^\s*\/\/.*$/gm, '');
+            process.stdout.write(JSON.parse(s).vars.APP_URL);
+          ")
+          echo "Checking $base"
           fail=0
-          for path in / /pricing /help; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$base$path")
+          for path in / /pricing /help /second-chances; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$base$path" || echo "000")
             echo "$path → $code"
             [ "$code" = "200" ] || fail=1
           done

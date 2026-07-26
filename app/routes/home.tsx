@@ -9,6 +9,9 @@ import {
   websiteSchema,
 } from "../lib/seo";
 import { MarketingFooter, MarketingHeader } from "../components/marketing";
+import { Storefront } from "../components/storefront";
+import { envFrom } from "../lib/env";
+import { loadStorefrontPage, shopForHostname } from "../lib/storefront";
 import { LinkButton } from "../components/ui";
 import { BrowserFrame } from "../components/BrowserFrame";
 import { DEMOS } from "../components/screens";
@@ -17,7 +20,16 @@ import { SavingsCalculator } from "../components/SavingsCalculator";
 import { calculateSavings, LABOUR_CLAIM, intakeHoursSavedPerMonth } from "../lib/savings";
 import { formatCents, formatDollars, getPlan, READER_M2_CENTS } from "../lib/pricing";
 
-export function meta() {
+export function meta({ loaderData }: Route.MetaArgs) {
+  // On a shop's own domain this page is the shop's, so it must not carry our
+  // marketing title and description.
+  if (loaderData?.kind === "shop") {
+    return [
+      { title: loaderData.page.seo.title },
+      { name: "description", content: loaderData.page.seo.description },
+    ];
+  }
+
   return marketingMeta({
     title: "ThriftOS — the thrift store operating system with no hardware lease",
     description:
@@ -26,7 +38,18 @@ export function meta() {
   });
 }
 
-export function loader() {
+export async function loader({ request, context }: Route.LoaderArgs) {
+  const env = envFrom(context);
+
+  // A shop that points its own domain here must get its own front page, not
+  // ours. The root path is the one address a custom domain is guaranteed to be
+  // visited at, so this is where that has to be handled.
+  const shop = await shopForHostname(env.DB, new URL(request.url).hostname);
+  if (shop) {
+    const page = await loadStorefrontPage(env.DB, shop, "");
+    if (page) return { kind: "shop" as const, page };
+  }
+
   // Every headline figure is computed, never pasted — so the page can't outlive
   // the model behind it.
   const leasedSmall = calculateSavings({
@@ -42,6 +65,7 @@ export function loader() {
   });
 
   return {
+    kind: "marketing" as const,
     volunteerPrice: getPlan("volunteer").monthlyCents,
     readerPrice: READER_M2_CENTS,
     leasedAnnualSavings: leasedSmall.annualSavingsCents,
@@ -54,6 +78,8 @@ export function loader() {
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
+  if (loaderData.kind === "shop") return <Storefront page={loaderData.page} />;
+
   const {
     volunteerPrice,
     readerPrice,
