@@ -65,6 +65,22 @@ export const DIVERTED_STATUSES = ["sold", "transferred", "recycled"] as const;
 export const DIVERTED_STATUS_SQL = DIVERTED_STATUSES.map((s) => `'${s}'`).join(",");
 
 /**
+ * The predicate that keeps invented records out of a real report.
+ *
+ * A shop that loads sample data to look around must not find that weight in
+ * its first board report, or that revenue on its first invoice. Every aggregate
+ * over items, donations, transactions, or shifts has to carry this — it exists
+ * as a named helper rather than a typed-out `is_sample = 0` so the ones that
+ * matter are greppable, and so a missing one shows up as an absence of
+ * `REAL_ONLY` rather than a predicate nobody thought to look for.
+ *
+ * Imported records are NOT excluded. They are real; only sample data isn't.
+ */
+export function realOnly(alias?: string): string {
+  return `${alias ? `${alias}.` : ""}is_sample = 0`;
+}
+
+/**
  * Landfill diversion: weight that actually left the building for reuse.
  */
 export function diversionLbs(

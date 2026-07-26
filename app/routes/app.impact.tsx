@@ -8,6 +8,7 @@ import {
   VOLUNTEER_HOUR_VALUE_SOURCE,
   volunteerHoursValueCents,
   DIVERTED_STATUS_SQL,
+  realOnly,
 } from "../lib/impact";
 import { rollupImpact } from "../cron/scheduled";
 import { Card, Stat, money } from "../components/ui";
@@ -37,18 +38,23 @@ export async function loader({ request, context }: Route.LoaderArgs) {
       env.DB,
       `SELECT
          COALESCE((SELECT SUM(weight_lbs) FROM items
-                    WHERE org_id = ?1 AND status IN (${DIVERTED_STATUS_SQL})), 0) AS diversion_lbs,
-         (SELECT COUNT(*) FROM items WHERE org_id = ?1 AND status = 'sold') AS items_rehomed,
+                    WHERE org_id = ?1 AND ${realOnly()}
+                      AND status IN (${DIVERTED_STATUS_SQL})), 0) AS diversion_lbs,
+         (SELECT COUNT(*) FROM items
+           WHERE org_id = ?1 AND ${realOnly()} AND status = 'sold') AS items_rehomed,
          COALESCE((SELECT SUM(MAX(ti.retail_estimate_cents - ti.price_cents, 0))
                      FROM transaction_items ti JOIN transactions t ON t.id = ti.transaction_id
-                    WHERE ti.org_id = ?1 AND t.voided_at IS NULL), 0) AS value_delivered,
+                    WHERE ti.org_id = ?1 AND ${realOnly("t")}
+                      AND t.voided_at IS NULL), 0) AS value_delivered,
          COALESCE((SELECT SUM(hours_logged) FROM shifts
-                    WHERE org_id = ?1 AND status = 'completed'), 0) AS volunteer_hours,
+                    WHERE org_id = ?1 AND ${realOnly()}
+                      AND status = 'completed'), 0) AS volunteer_hours,
          (SELECT COUNT(DISTINCT contact_id) FROM shifts
-           WHERE org_id = ?1 AND status = 'completed') AS volunteer_headcount,
-         (SELECT COUNT(*) FROM donations WHERE org_id = ?1) AS donations,
+           WHERE org_id = ?1 AND ${realOnly()} AND status = 'completed') AS volunteer_headcount,
+         (SELECT COUNT(*) FROM donations WHERE org_id = ?1 AND ${realOnly()}) AS donations,
          COALESCE((SELECT SUM(total_cents) FROM transactions
-                    WHERE org_id = ?1 AND voided_at IS NULL), 0) AS revenue`,
+                    WHERE org_id = ?1 AND ${realOnly()}
+                      AND voided_at IS NULL), 0) AS revenue`,
       user.orgId
     ),
     all<{

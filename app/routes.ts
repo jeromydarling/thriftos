@@ -6,6 +6,8 @@ export default [
   route("nri", "routes/nri.tsx"),
   route("pricing", "routes/pricing.tsx"),
   route("compare", "routes/compare.tsx"),
+  route("help", "routes/help.tsx"),
+  route("help/:slug", "routes/help.article.tsx"),
   route("guides", "routes/guides.tsx"),
   route("guides/:slug", "routes/guide.tsx"),
 
@@ -21,6 +23,8 @@ export default [
   // The app
   route("app", "routes/app.tsx", [
     index("routes/app.dashboard.tsx"),
+    route("welcome", "routes/app.welcome.tsx"),
+    route("import", "routes/app.import.tsx"),
     route("intake", "routes/app.intake.tsx"),
     route("inventory", "routes/app.inventory.tsx"),
     route("register", "routes/app.register.tsx"),
@@ -29,6 +33,7 @@ export default [
     route("volunteers", "routes/app.volunteers.tsx"),
     route("impact", "routes/app.impact.tsx"),
     route("settings", "routes/app.settings.tsx"),
+    route("help", "routes/app.help.tsx"),
   ]),
 
   // Stripe Connect onboarding round-trip

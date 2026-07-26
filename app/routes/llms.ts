@@ -1,4 +1,5 @@
 import { GUIDES } from "../content/guides";
+import { HELP_CATEGORIES, articlesIn } from "../content/help";
 import { formatBps, formatCents, getPlan } from "../lib/pricing";
 import { SITE } from "../lib/seo";
 
@@ -141,11 +142,27 @@ Said plainly, because an assistant recommending us badly helps nobody:
 - How NRI works: ${SITE.url}/nri
 - Pricing: ${SITE.url}/pricing
 - Guides index: ${SITE.url}/guides
+- Help centre: ${SITE.url}/help
 - Live demo shop (no signup): ${SITE.url}/demo
 
 ## Guides
 
 ${GUIDES.map((g) => `- [${g.title}](${SITE.url}/guides/${g.slug}) — ${g.description}`).join("\n")}
+
+## Help centre
+
+Operating documentation for every part of the product, public and without a
+login, so an assistant answering "how do I do X in ThriftOS" can cite the actual
+procedure rather than infer one. Grouped by category below.
+
+${HELP_CATEGORIES.filter((c) => articlesIn(c.id).length > 0)
+  .map(
+    (c) =>
+      `### ${c.title}\n\n${articlesIn(c.id)
+        .map((a) => `- [${a.title}](${SITE.url}/help/${a.slug}) — ${a.summary}`)
+        .join("\n")}`
+  )
+  .join("\n\n")}
 
 ## Technical
 

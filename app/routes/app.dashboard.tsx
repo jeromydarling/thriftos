@@ -5,7 +5,9 @@ import { envFrom } from "../lib/env";
 import { generateSignals, openSignals } from "../lib/nri/engine";
 import { Compass, CompassAside } from "../components/Compass";
 import { LinkButton, Stat, money } from "../components/ui";
-import { DIVERTED_STATUS_SQL, lbsToTons } from "../lib/impact";
+import { DIVERTED_STATUS_SQL, lbsToTons, realOnly } from "../lib/impact";
+import { getOnboardingState } from "../lib/onboarding";
+import { Link } from "react-router";
 
 export function meta() {
   return [{ title: "Today | ThriftOS" }];
@@ -33,14 +35,20 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     ),
     first<{ diversion_lbs: number; volunteer_hours: number; donations: number }>(
       env.DB,
+      // Impact figures, so they exclude sample data — these have to agree with
+      // the impact report and the Compass to the pound. The operational counts
+      // above deliberately don't exclude it: a shop exploring wants to see the
+      // register and the inventory list behave.
       `SELECT
          COALESCE((SELECT SUM(weight_lbs) FROM items
-                    WHERE org_id = ?1 AND status IN (${DIVERTED_STATUS_SQL})), 0) AS diversion_lbs,
+                    WHERE org_id = ?1 AND ${realOnly()}
+                      AND status IN (${DIVERTED_STATUS_SQL})), 0) AS diversion_lbs,
          COALESCE((SELECT SUM(hours_logged) FROM shifts
-                    WHERE org_id = ?1 AND status = 'completed'
+                    WHERE org_id = ?1 AND ${realOnly()} AND status = 'completed'
                       AND starts_at >= date('now','start of month')), 0) AS volunteer_hours,
          (SELECT COUNT(*) FROM donations
-           WHERE org_id = ?1 AND received_at >= date('now','start of month')) AS donations`,
+           WHERE org_id = ?1 AND ${realOnly()}
+             AND received_at >= date('now','start of month')) AS donations`,
       user.orgId
     ),
     first<{ n: number }>(
@@ -57,10 +65,28 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   }
 
   const signals = await openSignals(env.DB, user.orgId);
+  const onboarding = await getOnboardingState(env.DB, user.orgId);
 
   return {
     firstName: user.name.split(" ")[0],
     signals,
+    // Shown until it's finished or the shop hides it. A checklist that keeps
+    // congratulating a shop that's been trading for a year is noise.
+    onboarding:
+      onboarding.dismissed || onboarding.completed
+        ? null
+        : {
+            path: onboarding.path,
+            done: onboarding.completedCount,
+            total: onboarding.totalCount,
+            next: onboarding.nextStep
+              ? {
+                  title: onboarding.nextStep.title,
+                  href: onboarding.nextStep.href,
+                  cta: onboarding.nextStep.cta,
+                }
+              : null,
+          },
     stats: {
       salesToday: Number(today?.sales ?? 0),
       revenueToday: Number(today?.revenue ?? 0),
@@ -74,11 +100,13 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 }
 
 export default function Dashboard({ loaderData }: Route.ComponentProps) {
-  const { firstName, signals, stats } = loaderData;
+  const { firstName, signals, stats, onboarding } = loaderData;
   const tons = lbsToTons(stats.diversionLbs);
 
   return (
     <div className="space-y-8">
+      {onboarding ? <SetupPrompt onboarding={onboarding} /> : null}
+
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl text-bark">Hello, {firstName}</h1>
@@ -129,5 +157,56 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
         <CompassAside />
       </div>
     </div>
+  );
+}
+
+/**
+ * The nudge back to setup.
+ *
+ * It shows one next step rather than the whole list, because a shop that opens
+ * the app to ring up a customer doesn't need six outstanding tasks in its face.
+ */
+function SetupPrompt({
+  onboarding,
+}: {
+  onboarding: {
+    done: number;
+    total: number;
+    next: { title: string; href: string; cta: string } | null;
+  };
+}) {
+  const pct = onboarding.total > 0 ? Math.round((onboarding.done / onboarding.total) * 100) : 0;
+
+  return (
+    <section className="rounded-2xl border border-moss/25 bg-moss/5 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="font-display text-lg text-bark">
+            {onboarding.next ? onboarding.next.title : "Finish setting up"}
+          </h2>
+          <p className="mt-1 text-sm leading-relaxed text-slate-soft">
+            {onboarding.done} of {onboarding.total} done. The rest of the setup is on the{" "}
+            <Link to="/app/welcome" className="text-moss underline underline-offset-2">
+              welcome page
+            </Link>
+            .
+          </p>
+        </div>
+        {onboarding.next ? (
+          <LinkButton to={onboarding.next.href}>{onboarding.next.cta}</LinkButton>
+        ) : null}
+      </div>
+
+      <div
+        className="mt-4 h-1.5 overflow-hidden rounded-full bg-white"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label="Setup progress"
+      >
+        <div className="h-full rounded-full bg-moss" style={{ width: `${pct}%` }} />
+      </div>
+    </section>
   );
 }

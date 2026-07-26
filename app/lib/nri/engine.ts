@@ -10,7 +10,7 @@ import { newId } from "../ids";
 import { deriveSignals } from "./rules";
 import type { CandidateSignal, NriSnapshot } from "./types";
 import { DISCERNMENT } from "./voice";
-import { DIVERTED_STATUS_SQL } from "../impact";
+import { DIVERTED_STATUS_SQL, realOnly } from "../impact";
 import { THRESHOLDS, medianGapDays } from "./rules";
 
 const DAY = 86_400_000;
@@ -193,16 +193,29 @@ export async function gatherSnapshot(
       // same definition the impact rollup uses. Adding donation intake weight
       // here would double-count and would also count goods still sitting in the
       // backroom, which have not been diverted from anything yet.
+      //
+      // Sample data is excluded here and only here. NRI's operational rules
+      // above deliberately read it — a shop loading samples wants to watch the
+      // Compass notice aged stock and a donor gone quiet, and that's the whole
+      // point of loading them. But these are the figures that become a
+      // celebration signal and a board report, and celebrating invented weight
+      // would make every number in the app suspect. One definition of impact,
+      // shared with the rollup, so the two can never drift apart again.
       `SELECT
          COALESCE((SELECT SUM(weight_lbs) FROM items
-                    WHERE org_id = ?1 AND status IN (${DIVERTED_STATUS_SQL})), 0) AS lbs_total,
-         COALESCE((SELECT SUM(weight_lbs) FROM items WHERE org_id = ?1 AND sold_at >= ?2), 0) AS lbs_month,
-         (SELECT COUNT(*) FROM items WHERE org_id = ?1 AND status = 'sold') AS rehomed_total,
-         (SELECT COUNT(*) FROM items WHERE org_id = ?1 AND sold_at >= ?2) AS rehomed_month,
+                    WHERE org_id = ?1 AND ${realOnly()}
+                      AND status IN (${DIVERTED_STATUS_SQL})), 0) AS lbs_total,
+         COALESCE((SELECT SUM(weight_lbs) FROM items
+                    WHERE org_id = ?1 AND ${realOnly()} AND sold_at >= ?2), 0) AS lbs_month,
+         (SELECT COUNT(*) FROM items
+           WHERE org_id = ?1 AND ${realOnly()} AND status = 'sold') AS rehomed_total,
+         (SELECT COUNT(*) FROM items
+           WHERE org_id = ?1 AND ${realOnly()} AND sold_at >= ?2) AS rehomed_month,
          COALESCE((SELECT SUM(MAX(ti.retail_estimate_cents - ti.price_cents, 0))
                      FROM transaction_items ti
                      JOIN transactions t ON t.id = ti.transaction_id
-                    WHERE ti.org_id = ?1 AND t.created_at >= ?2 AND t.voided_at IS NULL), 0) AS value_month`,
+                    WHERE ti.org_id = ?1 AND ${realOnly("t")}
+                      AND t.created_at >= ?2 AND t.voided_at IS NULL), 0) AS value_month`,
       orgId,
       monthStart
     ),

@@ -32,6 +32,7 @@ export const ID_PREFIX = {
   email: "em",
   suppression: "su",
   run: "ru",
+  batch: "ib",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIX;

@@ -11,7 +11,7 @@ import { all, first, run } from "../lib/db";
 import { newId } from "../lib/ids";
 import { generateSignals } from "../lib/nri/engine";
 import { ensureDemoSeeded, seedDemoOrg, DEMO_SLUG } from "../lib/seed";
-import { DIVERTED_STATUS_SQL } from "../lib/impact";
+import { DIVERTED_STATUS_SQL, realOnly } from "../lib/impact";
 
 async function record(
   db: D1Database,
@@ -125,19 +125,26 @@ export async function rollupImpact(db: D1Database, orgId: string): Promise<numbe
     `SELECT
        COALESCE((SELECT SUM(weight_lbs) FROM items
                   WHERE org_id = ?1 AND status IN (${DIVERTED_STATUS_SQL})
+                    AND ${realOnly()}
                     AND COALESCE(sold_at, updated_at) >= ?2), 0) AS diversion_lbs,
-       (SELECT COUNT(*) FROM items WHERE org_id = ?1 AND sold_at >= ?2) AS items_rehomed,
+       (SELECT COUNT(*) FROM items
+         WHERE org_id = ?1 AND ${realOnly()} AND sold_at >= ?2) AS items_rehomed,
        COALESCE((SELECT SUM(MAX(ti.retail_estimate_cents - ti.price_cents, 0))
                    FROM transaction_items ti
                    JOIN transactions t ON t.id = ti.transaction_id
-                  WHERE ti.org_id = ?1 AND t.created_at >= ?2 AND t.voided_at IS NULL), 0) AS value_delivered,
+                  WHERE ti.org_id = ?1 AND ${realOnly("t")}
+                    AND t.created_at >= ?2 AND t.voided_at IS NULL), 0) AS value_delivered,
        COALESCE((SELECT SUM(total_cents) FROM transactions
-                  WHERE org_id = ?1 AND created_at >= ?2 AND voided_at IS NULL), 0) AS revenue,
+                  WHERE org_id = ?1 AND ${realOnly()}
+                    AND created_at >= ?2 AND voided_at IS NULL), 0) AS revenue,
        COALESCE((SELECT SUM(hours_logged) FROM shifts
-                  WHERE org_id = ?1 AND status = 'completed' AND starts_at >= ?2), 0) AS volunteer_hours,
+                  WHERE org_id = ?1 AND ${realOnly()}
+                    AND status = 'completed' AND starts_at >= ?2), 0) AS volunteer_hours,
        (SELECT COUNT(DISTINCT contact_id) FROM shifts
-         WHERE org_id = ?1 AND status = 'completed' AND starts_at >= ?2) AS volunteer_headcount,
-       (SELECT COUNT(*) FROM donations WHERE org_id = ?1 AND received_at >= ?2) AS donations`,
+         WHERE org_id = ?1 AND ${realOnly()}
+           AND status = 'completed' AND starts_at >= ?2) AS volunteer_headcount,
+       (SELECT COUNT(*) FROM donations
+         WHERE org_id = ?1 AND ${realOnly()} AND received_at >= ?2) AS donations`,
     orgId,
     periodStart
   );
