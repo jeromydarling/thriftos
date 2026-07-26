@@ -40,6 +40,7 @@ export default [
     route("site", "routes/app.site.tsx"),
     route("domains", "routes/app.domains.tsx"),
     route("inventory", "routes/app.inventory.tsx"),
+    route("photos", "routes/app.photos.tsx"),
     route("register", "routes/app.register.tsx"),
     route("people", "routes/app.people.tsx"),
     route("donations", "routes/app.donations.tsx"),
@@ -66,6 +67,7 @@ export default [
   route(":slug/basket", "routes/shop.basket.tsx"),
   route(":slug/checkout", "routes/shop.checkout.tsx"),
   route(":slug/order/:orderId", "routes/shop.order.tsx"),
+  route(":slug/feed.xml", "routes/shop.feed.tsx"),
 
   // A shop's own page, at the root of the path namespace: thriftos.app/{shop}.
   //

@@ -199,7 +199,14 @@ export async function loadStorefrontPage(
           // The column stays, unread, for the per-item "keep this off our
           // website" control that doesn't exist yet. Whoever builds that adds
           // the condition back here, in this one place, alongside the writer.
-          `SELECT id, title, category, price_cents, tag_color, intake_date, photo_key
+          // A reviewed cut-out wins over the snapshot it came from — a grid of
+          // mixed backgrounds is the exact thing the tidy-up exists to fix, and
+          // showing the tidy version on the item page but not in the grid is
+          // worse than not having it. Unreviewed, it's the original: nobody has
+          // said the cut-out is a fair picture of the goods yet.
+          `SELECT id, title, category, price_cents, tag_color, intake_date,
+                  CASE WHEN photo_enhanced_at IS NOT NULL AND photo_enhanced_key IS NOT NULL
+                       THEN photo_enhanced_key ELSE photo_key END AS photo_key
              FROM items
             WHERE org_id = ? AND status = 'available' AND price_cents > 0
               AND ${realOnly()}

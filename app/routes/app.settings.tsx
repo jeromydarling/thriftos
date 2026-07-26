@@ -4,6 +4,7 @@ import { requireRole, requireUser } from "../lib/auth";
 import { all, first, run } from "../lib/db";
 import { newId } from "../lib/ids";
 import { SUGGESTED_BANDS, bandsFor } from "../lib/shipping";
+import { feedReadiness } from "../lib/feed";
 import { DEFAULT_SETTINGS, parseOrgSettings, serialiseOrgSettings } from "../lib/settings";
 import { envFrom, integrationStatus } from "../lib/env";
 import { TAG_COLOR_HEX } from "../lib/markdown";
@@ -68,6 +69,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 
   const settings = parseOrgSettings(org?.settings_json);
   const bands = await bandsFor(env.DB, user.orgId);
+  const feed = await feedReadiness(env.DB, user.orgId);
 
   // Rendered server-side so the panel is truthful on first paint rather than
   // flashing "not connected" while a fetch resolves.
@@ -101,6 +103,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     settings,
     bands: bands.length > 0 ? bands : SUGGESTED_BANDS.map((b, i) => ({ ...b, id: `suggested-${i}` })),
     hasBands: bands.length > 0,
+    feed,
     integrations: integrationStatus(env),
     role: user.role,
     salesThisMonth: Number(salesThisMonth?.n ?? 0),
@@ -265,7 +268,7 @@ export async function action({ request, context }: Route.ActionArgs) {
 }
 
 export default function Settings({ loaderData }: Route.ComponentProps) {
-  const { org, rules, settings, bands, hasBands, integrations, role, salesThisMonth, aiUsed, connect, testMode } =
+  const { org, rules, settings, bands, hasBands, feed, integrations, role, salesThisMonth, aiUsed, connect, testMode } =
     loaderData;
   const navigation = useNavigation();
   const busy = navigation.state === "submitting";
@@ -389,6 +392,29 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
 
           {canEdit ? <Button type="submit" disabled={busy}>Save</Button> : null}
         </Form>
+
+        {/* An empty feed with no explanation is the failure this whole codebase
+            keeps running into. The count and the reason sit together. */}
+        {settings.onlineSelling ? (
+          <div className="mt-5 rounded-xl border border-line bg-linen/50 p-4 text-sm">
+            <p className="text-bark">
+              <strong>{feed.listed}</strong>{" "}
+              {feed.listed === 1 ? "item is" : "items are"} in your product feed, which is what
+              Google Shopping and similar read to send shoppers to your own pages.
+            </p>
+            {feed.note ? <p className="mt-1 text-slate-soft">{feed.note}</p> : null}
+            <p className="mt-2">
+              <a
+                href={`/${org?.slug ?? ""}/feed.xml`}
+                className="text-moss underline underline-offset-2"
+                target="_blank"
+                rel="noreferrer"
+              >
+                See the feed
+              </a>
+            </p>
+          </div>
+        ) : null}
       </Card>
 
       <Card>

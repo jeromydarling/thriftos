@@ -8,6 +8,8 @@ import { Hono } from "hono";
 import { all, first, run } from "../lib/db";
 import { newId, newToken } from "../lib/ids";
 import { getUser } from "../lib/auth";
+import { decideEnhancedPhoto, enhanceItemPhoto } from "../lib/enhance";
+import { imageBytes } from "../lib/photos";
 import { clientIp, LIMITS, rateLimit, recordAttempt } from "../lib/ratelimit";
 import { extractItemFromPhoto, confidenceLabel } from "../lib/ai";
 import { findOrCreateContact } from "../lib/contacts";
@@ -66,18 +68,17 @@ api.get("/api/media/:key{.+}", async (c) => {
   // Resize through the Images binding when a width is asked for; fall back to
   // the original if the binding isn't available or the transform fails.
   if (Number.isFinite(width) && width > 0 && width <= 2400 && c.env.IMAGES) {
+    const { bytes, stream } = await imageBytes(object);
     try {
-      const result = await c.env.IMAGES.input(object.body as ReadableStream)
+      const result = await c.env.IMAGES.input(stream)
         .transform({ width })
         .output({ format: "image/webp" });
       headers.set("Content-Type", "image/webp");
       return new Response(result.image(), { headers });
     } catch (err) {
       console.warn("image transform failed, serving original:", err);
-      const original = await c.env.MEDIA.get(key);
-      if (!original) return c.notFound();
-      headers.set("Content-Type", original.httpMetadata?.contentType ?? "image/jpeg");
-      return new Response(original.body, { headers });
+      headers.set("Content-Type", object.httpMetadata?.contentType ?? "image/jpeg");
+      return new Response(bytes, { headers });
     }
   }
 
@@ -86,6 +87,55 @@ api.get("/api/media/:key{.+}", async (c) => {
 });
 
 /* ─── Item intake: photo → R2 → Workers AI ──────────────────────────────── */
+
+/**
+ * Make a product shot out of a back-room snapshot.
+ *
+ * Writes a *second* object. The original is never replaced, and
+ * `photo_enhanced_at` stays null until a person has looked at the result and
+ * kept it — an unreviewed cut-out is a guess, and a guess about what a used
+ * item looks like is not something to publish.
+ *
+ * Degrades by saying so. If the binding isn't there or the transform fails, the
+ * shop is told the tidy-up isn't available; it is never handed back the
+ * original dressed up as an enhanced version, because then nobody would know
+ * which listings had actually been cleaned up.
+ */
+api.post("/api/items/:id/enhance", async (c) => {
+  const user = await getUser(c.req.raw, c.env.DB);
+  if (!user) return json({ error: "Please sign in first." }, 401);
+
+  const limit = await rateLimit(c.env.KV, `enhance:${user.orgId}`, LIMITS.aiIntake);
+  if (!limit.allowed) {
+    return json(
+      { error: "That's a lot at once. Give it a minute.", retryAfter: limit.retryAfterSeconds },
+      429
+    );
+  }
+
+  const result = await enhanceItemPhoto(c.env, user.orgId, c.req.param("id"));
+  if (!result.ok) return json({ error: result.error }, (result.status ?? 500) as 400);
+
+  return json({ enhancedUrl: result.enhancedUrl, originalUrl: result.originalUrl });
+});
+
+/** Keep, or throw away, an enhanced photo a person has now looked at. */
+api.post("/api/items/:id/enhance/decide", async (c) => {
+  const user = await getUser(c.req.raw, c.env.DB);
+  if (!user) return json({ error: "Please sign in first." }, 401);
+
+  const body = await c.req.json<{ keep?: boolean }>().catch(() => ({}) as { keep?: boolean });
+
+  const result = await decideEnhancedPhoto(
+    c.env,
+    user.orgId,
+    c.req.param("id"),
+    body.keep === true
+  );
+  if (!result.ok) return json({ error: result.error }, (result.status ?? 500) as 400);
+
+  return json({ ok: true });
+});
 
 api.post("/api/intake/photo", async (c) => {
   const user = await getUser(c.req.raw, c.env.DB);
