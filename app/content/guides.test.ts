@@ -98,12 +98,13 @@ describe("honesty of the comparison page", () => {
     expect(text).toMatch(/weaker|better choice|are better/);
   });
 
-  it("names the volume where competitors beat us on price", () => {
-    // The comparison guide must not quietly become a pure sales pitch. If we
-    // ever drop the crossover disclosure, this fails.
+  it("still names the platform fee as a cost competitors don't itemise", () => {
+    // The comparison guide must not quietly become a pure sales pitch. The fee
+    // cap made us cheaper everywhere, but the fee is still a visible line on a
+    // shop's statement that a bundled competitor doesn't have — say so.
     const text = JSON.stringify(comparison).toLowerCase();
-    expect(text).toMatch(/cheaper|crossover|\$25,000/);
     expect(text).toMatch(/platform fee/);
+    expect(text).toMatch(/capped|cap /);
   });
 
   it("mentions the hardware-lease advantage, the strongest honest claim", () => {

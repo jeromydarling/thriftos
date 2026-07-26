@@ -426,8 +426,8 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             <ul className="mt-8 space-y-5">
               {[
                 {
-                  t: "You're doing serious card volume.",
-                  d: "Our platform fee is a percentage, so past roughly $25k–$105k a month depending on who you're comparing to, a flat-priced competitor is cheaper. The calculator above will tell you exactly where that line falls for you.",
+                  t: "You're already on something cheap that works.",
+                  d: "If you're paying under $150/month with bundled processing and your staff know it, our saving may be small or nil. Run it through the calculator — it will say so plainly rather than talk you round.",
                 },
                 {
                   t: "You need deep e-commerce.",

@@ -227,21 +227,33 @@ export function SavingsCalculator({ compact = false }: { compact?: boolean }) {
                   your card volume while their flat software price doesn't.
                 </p>
                 <p className="mt-3 border-t border-clay/20 pt-3 text-xs leading-relaxed text-slate-soft">
-                  If you're doing this kind of volume, talk to us about Enterprise terms —
-                  negotiated rates and a fee cap exist precisely for this. But we're not going
-                  to put a number on this page that your own spreadsheet would contradict.
+                  Try a lower tier — Volunteer is the cheapest plan at every volume, since the
+                  fee is capped at the subscription either way. If it still comes out higher,
+                  what you have is a good deal and you should keep it. We're not going to put a
+                  number on this page that your own spreadsheet would contradict.
                 </p>
               </>
             )}
           </div>
 
-          {Number.isFinite(crossover) && !compact ? (
-            <p className="mt-3 text-xs leading-relaxed text-slate-soft">
-              Against {result.competitor.name}, ThriftOS is cheaper up to about{" "}
-              <strong className="text-bark">{formatDollars(crossover)}</strong> a month in card
-              sales. Above that their flat pricing wins on cost alone — that's arithmetic, not
-              modesty.
-            </p>
+          {!compact ? (
+            Number.isFinite(crossover) ? (
+              <p className="mt-3 text-xs leading-relaxed text-slate-soft">
+                Against {result.competitor.name}, ThriftOS is cheaper up to about{" "}
+                <strong className="text-bark">{formatDollars(crossover)}</strong> a month in
+                card sales. Above that their flat pricing wins on cost alone — that's
+                arithmetic, not modesty.
+              </p>
+            ) : (
+              <p className="mt-3 rounded-lg border border-moss/25 bg-moss/5 px-3 py-2 text-xs leading-relaxed text-slate-soft">
+                Your platform fee is capped at{" "}
+                <strong className="text-bark">
+                  {formatCents(result.plan.maxPlatformFeeCents ?? 0)}
+                </strong>{" "}
+                a month, so it stops growing while their percentage processing keeps climbing.
+                There is no volume at which {result.competitor.name} becomes cheaper.
+              </p>
+            )
           ) : null}
 
           <p className="mt-3 text-[11px] leading-relaxed text-slate-soft">

@@ -6,7 +6,7 @@ import { envFrom, integrationStatus } from "../lib/env";
 import { TAG_COLOR_HEX } from "../lib/markdown";
 import { TRUST_BOUNDARIES } from "../lib/nri/voice";
 import { formatBps, getPlan, PLANS } from "../lib/pricing";
-import { planCrossoverVolumeCents } from "../lib/savings";
+import { feeCapVolumeCents, maxMonthlyCostCents } from "../lib/savings";
 import { Badge, Button, Card, Field, Input, Notice, money } from "../components/ui";
 
 export function meta() {
@@ -315,12 +315,12 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
           {salesThisMonth} card {salesThisMonth === 1 ? "sale" : "sales"} this month. Cash sales
           carry no processing or platform fee at all — only the subscription applies.
         </p>
-        {plan.id === "volunteer" ? (
-          <p className="mt-2 text-sm leading-relaxed text-slate-soft">
-            Past about {money(planCrossoverVolumeCents())} a month in card volume, Core costs
-            less overall despite the higher subscription — its platform fee is 0.25% lower.
-          </p>
-        ) : null}
+        <p className="mt-2 text-sm leading-relaxed text-slate-soft">
+          Your platform fee is capped at {money(plan.maxPlatformFeeCents ?? 0)} a month — it
+          stops growing once card sales pass{" "}
+          {money(feeCapVolumeCents(plan.id) ?? 0)}. The most you can pay ThriftOS in any month
+          is {money(maxMonthlyCostCents(plan.id))}, whatever you take.
+        </p>
         <p className="mt-2 text-xs text-slate-soft">
           {aiUsed} photo reads used this month.
         </p>

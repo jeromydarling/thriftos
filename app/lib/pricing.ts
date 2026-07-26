@@ -21,14 +21,19 @@ export interface Plan {
   name: string;
   /** Flat monthly price in integer cents. */
   monthlyCents: number;
-  /**
-   * Annual price in cents, or null where none is published yet. There is no
-   * invented discount here — annual pricing is a business decision, and the
-   * multiplier lives in ANNUAL_DISCOUNT_BPS where it can be set deliberately.
-   */
+  /** Annual price in cents — ten months charged, twelve delivered. */
   annualCents: number | null;
   /** ThriftOS platform fee on card volume, in basis points. 75 = 0.75%. */
   platformFeeBps: number;
+  /**
+   * Monthly ceiling on the platform fee. Defaults to the plan's own
+   * subscription price, which gives a promise a shop can hold in their head:
+   * **your platform fee never exceeds your subscription.**
+   *
+   * This is what stops a percentage fee from quietly overtaking a competitor's
+   * flat price as a shop grows. null = uncapped (Enterprise negotiates its own).
+   */
+  maxPlatformFeeCents: number | null;
   /** null = negotiated per contract. */
   maxLocations: number | null;
   /** True where the monthly price is a starting point, not a fixed rate. */
@@ -39,18 +44,52 @@ export interface Plan {
 }
 
 /**
- * Annual billing discount, in basis points off the twelve-month total.
- * Deliberately 0 until someone decides what it should be — shipping an invented
- * discount would be a claim the business hasn't agreed to.
+ * Annual billing: pay for ten months, get twelve. Two months free is the plainest
+ * version of a discount a shop can check in their head, which is worth more than
+ * a cleverer percentage.
+ *
+ * The discount is *derived* from this, never stored separately, so the headline
+ * percentage and the amount actually charged cannot drift apart.
  */
-export const ANNUAL_DISCOUNT_BPS = 0;
+export const ANNUAL_MONTHS_CHARGED = 10;
+
+export function annualCentsFor(monthlyCents: number): number {
+  return monthlyCents * ANNUAL_MONTHS_CHARGED;
+}
+
+/** ~1667bps (16.67%). Derived, so changing the months above moves it too. */
+export const ANNUAL_DISCOUNT_BPS = Math.round(
+  ((12 - ANNUAL_MONTHS_CHARGED) / 12) * 10_000
+);
+
+/* ─── Trial and grace ────────────────────────────────────────────────────
+   Generous on purpose, and bounded by one rule that isn't negotiable:
+   we never switch off a shop's register. Locking the till on a Saturday
+   because a card expired is not a billing strategy, it's sabotage. */
+
+export const TRIAL_DAYS = 30;
+export const GRACE_DAYS = 14;
+
+/**
+ * What a shop can still do while past due. The register and data export stay on
+ * no matter what — a shop that wants to leave must always be able to leave with
+ * its records, and a shop that owes us money can still take a customer's money.
+ */
+export const ALWAYS_AVAILABLE = [
+  "register",
+  "cash_checkout",
+  "data_export",
+  "billing_update",
+  "receipts",
+] as const;
 
 export const PLANS: readonly Plan[] = [
   {
     id: "volunteer",
     name: "Volunteer",
     monthlyCents: 3900,
-    annualCents: null,
+    annualCents: 39000,
+    maxPlatformFeeCents: 3900,
     platformFeeBps: 75,
     maxLocations: 1,
     startingAt: false,
@@ -68,7 +107,8 @@ export const PLANS: readonly Plan[] = [
     id: "core",
     name: "Core",
     monthlyCents: 9900,
-    annualCents: null,
+    annualCents: 99000,
+    maxPlatformFeeCents: 9900,
     platformFeeBps: 50,
     maxLocations: 1,
     startingAt: false,
@@ -87,7 +127,8 @@ export const PLANS: readonly Plan[] = [
     id: "federation",
     name: "Federation",
     monthlyCents: 24900,
-    annualCents: null,
+    annualCents: 249000,
+    maxPlatformFeeCents: 24900,
     platformFeeBps: 35,
     maxLocations: 5,
     startingAt: false,
@@ -106,7 +147,8 @@ export const PLANS: readonly Plan[] = [
     id: "enterprise",
     name: "Enterprise",
     monthlyCents: 79900,
-    annualCents: null,
+    annualCents: 799000,
+    maxPlatformFeeCents: 79900,
     platformFeeBps: 25,
     maxLocations: null,
     startingAt: true,
@@ -176,6 +218,56 @@ export function platformFeeCents(feeBaseCents: number, policy: FeePolicy): numbe
 
   // A fee can never exceed what was actually charged.
   return Math.min(fee, base);
+}
+
+/**
+ * The monthly cap, applied per transaction.
+ *
+ * The cap is a *monthly* ceiling but fees are charged one sale at a time, so it
+ * has to be spent down rather than applied to each charge in isolation. Given
+ * what a shop has already paid this month, this returns the fee for the next
+ * sale — which is whatever headroom remains, and eventually zero.
+ *
+ * Getting this wrong in the obvious way (capping each transaction at the
+ * monthly figure) would charge a busy shop the cap many times over, which is
+ * the exact opposite of the promise.
+ */
+export function cappedPlatformFeeCents(
+  feeBaseCents: number,
+  policy: FeePolicy,
+  monthToDateFeeCents: number,
+  monthlyCapCents: number | null
+): number {
+  const uncapped = platformFeeCents(feeBaseCents, policy);
+  if (monthlyCapCents == null) return uncapped;
+
+  const spent = Math.max(0, Math.round(monthToDateFeeCents));
+  const headroom = Math.max(0, monthlyCapCents - spent);
+  return Math.min(uncapped, headroom);
+}
+
+/** The card volume at which a plan's fee reaches its cap. Derived. */
+export function feeCapReachedAtVolumeCents(plan: Plan): number | null {
+  if (plan.maxPlatformFeeCents == null || plan.platformFeeBps <= 0) return null;
+  return Math.ceil((plan.maxPlatformFeeCents * 10_000) / plan.platformFeeBps);
+}
+
+/**
+ * A refund gives back the platform fee in proportion to what was returned.
+ *
+ * Stripe does not do this on its own — the application fee has to be refunded
+ * explicitly. A shop that hands a customer their money back should not still be
+ * paying us for the sale, so this is always called on refund.
+ */
+export function proportionalFeeRefundCents(
+  originalFeeCents: number,
+  originalBaseCents: number,
+  refundedBaseCents: number
+): number {
+  if (originalBaseCents <= 0 || originalFeeCents <= 0) return 0;
+  const refunded = Math.min(Math.max(0, refundedBaseCents), originalBaseCents);
+  // Round in the shop's favour, so a rounding cent is never one we keep.
+  return Math.min(originalFeeCents, Math.ceil((originalFeeCents * refunded) / originalBaseCents));
 }
 
 export interface FeeBaseOptions {

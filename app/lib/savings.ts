@@ -12,6 +12,7 @@
  * fastest one to get caught.
  */
 import {
+  feeCapReachedAtVolumeCents,
   getPlan,
   platformFeeCents,
   READER_M2_CENTS,
@@ -156,42 +157,47 @@ export function transactionsPerMonth(volumeCents: number, avgTicketCents: number
 /**
  * The plan a shop should actually be on.
  *
- * Not always the cheapest sticker price: Core costs $60/month more than
- * Volunteer but charges 25bps less, so past roughly $24k of monthly card volume
- * Core is genuinely cheaper. We recommend by total cost, not by subscription,
- * because recommending the wrong one to look cheap would be found out in month
- * two.
+ * Chosen by what a shop *needs*, not by what costs most — because once the
+ * platform fee is capped at each plan's own subscription, Volunteer is the
+ * cheapest plan at every card volume. There is no volume at which a shop should
+ * "upgrade to save money", and pretending otherwise would be an upsell dressed
+ * as advice.
+ *
+ * You move up for locations and for AI intake allowance. That's it, and the
+ * pricing page says so in those words.
  */
-export function recommendPlan(monthlyCardVolumeCents: number, locations = 1): PlanId {
+export function recommendPlan(
+  monthlyCardVolumeCents: number,
+  locations = 1,
+  itemsPerMonth = 0
+): PlanId {
   if (locations > 5) return "enterprise";
   if (locations > 1) return "federation";
-
-  const volunteer = totalThriftOsCents("volunteer", monthlyCardVolumeCents, 0);
-  const core = totalThriftOsCents("core", monthlyCardVolumeCents, 0);
-  return core < volunteer ? "core" : "volunteer";
+  if (itemsPerMonth > 1_000) return "federation";
+  if (itemsPerMonth > 100) return "core";
+  return "volunteer";
 }
 
-function totalThriftOsCents(
-  planId: PlanId,
-  volumeCents: number,
-  processingCents: number
-): number {
+/** True where a cheaper plan would serve this shop just as well. */
+export function cheapestAdequatePlan(locations = 1, itemsPerMonth = 0): PlanId {
+  return recommendPlan(0, locations, itemsPerMonth);
+}
+
+/**
+ * The card volume at which a plan's platform fee stops growing.
+ *
+ * Past this point the fee is flat for the rest of the month, so a shop's
+ * marginal cost of taking another card payment is Stripe's rate and nothing
+ * else. This is the number worth putting on the pricing page.
+ */
+export function feeCapVolumeCents(planId: PlanId): number | null {
+  return feeCapReachedAtVolumeCents(getPlan(planId));
+}
+
+/** The most a shop can pay ThriftOS in a month: subscription plus capped fee. */
+export function maxMonthlyCostCents(planId: PlanId): number {
   const plan = getPlan(planId);
-  return (
-    plan.monthlyCents +
-    processingCents +
-    platformFeeCents(volumeCents, { platformFeeBps: plan.platformFeeBps })
-  );
-}
-
-/** The volume at which Core overtakes Volunteer. Derived, never hardcoded. */
-export function planCrossoverVolumeCents(): number {
-  const volunteer = getPlan("volunteer");
-  const core = getPlan("core");
-  const monthlyDelta = core.monthlyCents - volunteer.monthlyCents;
-  const bpsDelta = volunteer.platformFeeBps - core.platformFeeBps;
-  if (bpsDelta <= 0) return Number.POSITIVE_INFINITY;
-  return Math.round((monthlyDelta * 10_000) / bpsDelta);
+  return plan.monthlyCents + (plan.maxPlatformFeeCents ?? 0);
 }
 
 /**
@@ -229,7 +235,7 @@ export function calculateSavings(inputs: ShopInputs): SavingsResult {
   const avgTicket = Math.max(1, Math.round(inputs.averageTicketCents));
   const txns = transactionsPerMonth(volume, avgTicket);
 
-  const planId = inputs.planId ?? recommendPlan(volume);
+  const planId = inputs.planId ?? recommendPlan(volume, 1, 0);
   const plan = getPlan(planId);
   const competitor = getCompetitor(inputs.competitorId ?? "thriftcart");
 
@@ -254,7 +260,12 @@ export function calculateSavings(inputs: ShopInputs): SavingsResult {
   const stripeProcessing =
     Math.round((volume * 270) / 10_000) + txns * 5;
 
-  const ourPlatformFee = platformFeeCents(volume, { platformFeeBps: plan.platformFeeBps });
+  // The monthly cap is what keeps a percentage fee from overtaking a
+  // competitor's flat price as a shop grows.
+  const ourPlatformFee = platformFeeCents(volume, {
+    platformFeeBps: plan.platformFeeBps,
+    maximumFeeCents: plan.maxPlatformFeeCents,
+  });
 
   const hardware = inputs.needsReader
     ? Math.round(READER_M2_CENTS / HARDWARE_AMORTISATION_MONTHS)

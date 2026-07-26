@@ -14,18 +14,28 @@ import {
   STRIPE_CARD_PRESENT_BPS,
   STRIPE_CARD_PRESENT_FIXED_CENTS,
 } from "../lib/pricing";
-import { planCrossoverVolumeCents } from "../lib/savings";
+import { feeCapVolumeCents, maxMonthlyCostCents } from "../lib/savings";
 
 const FAQ = [
   {
     question: "What exactly is the platform fee?",
     answer:
-      "A percentage of card sales — 0.75% on Volunteer down to 0.25% on Enterprise — charged on top of Stripe's own processing rate. It is not a donation and we don't call it one. Cash sales carry no platform fee at all.",
+      "A percentage of card sales — 0.75% on Volunteer down to 0.25% on Enterprise — charged on top of Stripe's own processing rate, and capped each month at your subscription price. It is not a donation and we don't call it one. Cash sales carry no platform fee at all.",
   },
   {
     question: "Does the fee apply to sales tax and round-up donations?",
     answer:
       "No. The fee is charged on merchandise after discounts. Sales tax is the state's money and a round-up is the customer's donation — charging a platform fee on either would be hard to explain to a shop, so we don't.",
+  },
+  {
+    question: "What happens if my card fails?",
+    answer:
+      "You get 14 days' grace, and we never switch off your register. A shop that owes us money can still take a customer's money, and can still export its data. Locking a till on a Saturday isn't a billing strategy.",
+  },
+  {
+    question: "Is there a free trial?",
+    answer:
+      "30 days, no card required. If it isn't right, walk away and take your data with you.",
   },
   {
     question: "Is there a setup fee, contract, or hardware lease?",
@@ -40,12 +50,12 @@ const FAQ = [
   {
     question: "Could ThriftOS end up costing me more than what I have?",
     answer:
-      "Yes, at high card volume. Our fee is a percentage while a competitor's software price is flat, so above roughly $25,000 a month against a keenly-priced alternative, they win on cost. The calculator on this page will tell you where that line falls for your shop.",
+      "Against the systems we compare to, no — the platform fee is capped at your subscription, so it stops growing and we stay cheaper at every volume. If you're on something cheaper than $150/month with bundled processing, run it through the calculator; it will tell you plainly if we'd cost more.",
   },
   {
     question: "Is there an annual discount?",
     answer:
-      "Not yet. We'd rather publish no discount than invent one — when annual billing arrives, the rate will be stated here in plain numbers.",
+      "Yes — pay for ten months and get twelve. That's about 16.7% off, and it's the same discount on every plan.",
   },
 ];
 
@@ -61,14 +71,15 @@ export function meta() {
 export function loader() {
   return {
     plans: PLANS.map((p) => ({ ...p, features: [...p.features] })),
-    crossoverCents: planCrossoverVolumeCents(),
+    capVolumeCents: feeCapVolumeCents("volunteer") ?? 0,
+    maxVolunteerCents: maxMonthlyCostCents("volunteer"),
     readerPrice: READER_M2_CENTS,
     stripeRate: `${(STRIPE_CARD_PRESENT_BPS / 100).toFixed(1)}% + ${STRIPE_CARD_PRESENT_FIXED_CENTS}¢`,
   };
 }
 
 export default function Pricing({ loaderData }: Route.ComponentProps) {
-  const { plans, crossoverCents, readerPrice, stripeRate } = loaderData;
+  const { plans, capVolumeCents, maxVolunteerCents, readerPrice, stripeRate } = loaderData;
 
   return (
     <>
@@ -154,12 +165,19 @@ export default function Pricing({ loaderData }: Route.ComponentProps) {
             </div>
 
             <Reveal delay={200}>
-              <p className="mt-6 rounded-xl border border-line bg-white px-5 py-4 text-sm leading-relaxed text-slate-soft">
-                <strong className="text-bark">A note on picking a tier:</strong> Core costs $60
-                more a month than Volunteer but charges 0.25% less on card sales. Past about{" "}
-                <strong className="text-bark">{formatDollars(crossoverCents)}</strong> a month in
-                card volume, Core is genuinely the cheaper plan. The calculator below works this
-                out for you, and it will recommend Volunteer if that's the right answer.
+              <p className="mt-6 rounded-xl border border-moss/30 bg-moss/5 px-5 py-4 text-sm leading-relaxed text-slate-soft">
+                <strong className="text-bark">Your platform fee is capped at your
+                subscription.</strong>{" "}
+                On Volunteer it stops at {formatCents(3_900)} a month — reached at about{" "}
+                {formatDollars(capVolumeCents)} in card sales — so the most you can ever pay us
+                is <strong className="text-bark">{formatCents(maxVolunteerCents)}</strong> a
+                month, however busy you get.
+              </p>
+              <p className="mt-3 rounded-xl border border-line bg-white px-5 py-4 text-sm leading-relaxed text-slate-soft">
+                <strong className="text-bark">Which tier?</strong> Not the one with the most
+                card volume — Volunteer is the cheapest plan at every volume, and we're not
+                going to pretend otherwise to sell you an upgrade. Move up when you need more
+                locations or a bigger AI intake allowance. That's the only reason.
               </p>
             </Reveal>
           </div>

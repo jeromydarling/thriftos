@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  ALWAYS_AVAILABLE,
   ANNUAL_DISCOUNT_BPS,
+  ANNUAL_MONTHS_CHARGED,
+  annualCentsFor,
+  cappedPlatformFeeCents,
+  feeCapReachedAtVolumeCents,
+  GRACE_DAYS,
+  proportionalFeeRefundCents,
+  TRIAL_DAYS,
   formatBps,
   formatCents,
   formatDollars,
@@ -49,10 +57,32 @@ describe("plan definitions", () => {
     expect(getPlan("enterprise").maxLocations).toBeNull();
   });
 
-  it("invents no annual discount", () => {
-    // Shipping a made-up discount would be a claim nobody in the business
-    // agreed to. It stays zero until someone sets it deliberately.
-    expect(ANNUAL_DISCOUNT_BPS).toBe(0);
+  it("gives two months free on annual, and derives the headline from it", () => {
+    expect(ANNUAL_MONTHS_CHARGED).toBe(10);
+    expect(ANNUAL_DISCOUNT_BPS).toBe(1_667); // ~16.67%
+
+    // The advertised percentage and the amount charged must agree.
+    for (const plan of PLANS) {
+      expect(plan.annualCents).toBe(annualCentsFor(plan.monthlyCents));
+      expect(plan.annualCents).toBe(plan.monthlyCents * 10);
+    }
+  });
+
+  it("caps each plan's platform fee at its own subscription", () => {
+    // The promise: you never pay us more in fees than you pay in subscription.
+    for (const plan of PLANS) {
+      expect(plan.maxPlatformFeeCents).toBe(plan.monthlyCents);
+    }
+  });
+
+  it("is generous on trial and grace, and never locks the register", () => {
+    expect(TRIAL_DAYS).toBe(30);
+    expect(GRACE_DAYS).toBe(14);
+    // A shop that owes us money can still take a customer's money, and can
+    // still leave with its data. Both are non-negotiable.
+    expect(ALWAYS_AVAILABLE).toContain("register");
+    expect(ALWAYS_AVAILABLE).toContain("cash_checkout");
+    expect(ALWAYS_AVAILABLE).toContain("data_export");
   });
 });
 
@@ -165,5 +195,71 @@ describe("formatting", () => {
     expect(formatBps(50)).toBe("0.5%");
     expect(formatBps(25)).toBe("0.25%");
     expect(formatBps(100)).toBe("1%");
+  });
+});
+
+
+describe("the monthly cap, spent down one sale at a time", () => {
+  const policy = { platformFeeBps: 75 };
+  const cap = 3_900; // Volunteer
+
+  it("charges the normal fee while there is headroom", () => {
+    expect(cappedPlatformFeeCents(10_000, policy, 0, cap)).toBe(75);
+    expect(cappedPlatformFeeCents(10_000, policy, 1_000, cap)).toBe(75);
+  });
+
+  it("charges only the remaining headroom on the sale that crosses the cap", () => {
+    expect(cappedPlatformFeeCents(10_000, policy, 3_860, cap)).toBe(40);
+  });
+
+  it("charges nothing once the cap is reached", () => {
+    expect(cappedPlatformFeeCents(10_000, policy, 3_900, cap)).toBe(0);
+    expect(cappedPlatformFeeCents(10_000, policy, 99_999, cap)).toBe(0);
+  });
+
+  it("does not apply the monthly cap to each transaction in isolation", () => {
+    // The bug that would charge a busy shop the cap many times over: 500 sales
+    // must total the cap, not 500× the cap.
+    let spent = 0;
+    for (let i = 0; i < 500; i++) {
+      spent += cappedPlatformFeeCents(10_000, policy, spent, cap);
+    }
+    expect(spent).toBe(cap);
+  });
+
+  it("is uncapped when no cap is configured", () => {
+    expect(cappedPlatformFeeCents(1_000_000, policy, 0, null)).toBe(7_500);
+  });
+
+  it("reaches the cap at a derivable volume", () => {
+    const plan = getPlan("volunteer");
+    const volume = feeCapReachedAtVolumeCents(plan)!;
+    expect(platformFeeCents(volume, { platformFeeBps: plan.platformFeeBps })).toBeGreaterThanOrEqual(
+      plan.maxPlatformFeeCents!
+    );
+  });
+});
+
+describe("refunds give the platform fee back proportionally", () => {
+  it("returns the whole fee on a full refund", () => {
+    expect(proportionalFeeRefundCents(75, 10_000, 10_000)).toBe(75);
+  });
+
+  it("returns half the fee on a half refund", () => {
+    expect(proportionalFeeRefundCents(100, 10_000, 5_000)).toBe(50);
+  });
+
+  it("rounds in the shop's favour, never ours", () => {
+    // A third of 100 is 33.33; the shop gets 34.
+    expect(proportionalFeeRefundCents(100, 3_000, 1_000)).toBe(34);
+  });
+
+  it("never returns more than was charged", () => {
+    expect(proportionalFeeRefundCents(75, 10_000, 99_999)).toBe(75);
+  });
+
+  it("handles a zero fee or zero base without dividing by zero", () => {
+    expect(proportionalFeeRefundCents(0, 10_000, 5_000)).toBe(0);
+    expect(proportionalFeeRefundCents(75, 0, 5_000)).toBe(0);
   });
 });

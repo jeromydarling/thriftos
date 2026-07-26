@@ -17,7 +17,7 @@ const FAQ = [
   {
     question: "Is ThriftOS always cheaper?",
     answer:
-      "No. Our platform fee is a percentage of card volume, so above roughly $25,000 a month against a keenly-priced software-only competitor, a flat subscription wins on cost. The calculator on this page shows exactly where that line falls for your volume.",
+      "Against every system on this page, yes — because the platform fee is capped at your subscription, so it stops growing while their percentage processing doesn't. Against something cheaper than $150/month with bundled processing, run the calculator; it will tell you honestly if we'd cost more.",
   },
   {
     question: "What is the hardware actually going to cost me?",
@@ -98,9 +98,9 @@ const MATRIX: {
   },
   {
     feature: "Platform fee on card volume",
-    thriftos: "0.25%–0.75% on top of Stripe",
-    others: "None — processing is bundled",
-    advantage: "them",
+    thriftos: "0.25%–0.75% on top of Stripe, capped at your subscription",
+    others: "None as a line item — bundled into a higher processing rate",
+    advantage: "even",
   },
   {
     feature: "Track record & support depth",
@@ -276,14 +276,21 @@ export default function Compare({ loaderData }: Route.ComponentProps) {
                     </table>
                   </div>
 
-                  {row.crossoverCents ? (
-                    <p className="border-t border-line bg-linen/40 px-5 py-3 text-xs leading-relaxed text-slate-soft">
-                      ThriftOS is cheaper up to about{" "}
-                      <strong className="text-bark">{formatDollars(row.crossoverCents)}</strong> a
-                      month in card sales. Above that, {row.name} wins on cost — our fee is a
-                      percentage and theirs is flat.
-                    </p>
-                  ) : null}
+                  <p className="border-t border-line bg-linen/40 px-5 py-3 text-xs leading-relaxed text-slate-soft">
+                    {row.crossoverCents ? (
+                      <>
+                        ThriftOS is cheaper up to about{" "}
+                        <strong className="text-bark">{formatDollars(row.crossoverCents)}</strong>{" "}
+                        a month in card sales. Above that, {row.name} wins on cost.
+                      </>
+                    ) : (
+                      <>
+                        Our platform fee is capped at your subscription, so it stops growing
+                        while {row.name}'s percentage processing keeps climbing. There is no
+                        volume at which they become cheaper — the gap widens as you grow.
+                      </>
+                    )}
+                  </p>
                 </div>
               </Reveal>
             ))}
@@ -296,7 +303,7 @@ export default function Compare({ loaderData }: Route.ComponentProps) {
             <Reveal>
               <h2 className="font-display text-3xl text-bark">Feature for feature</h2>
               <p className="mt-2 text-sm text-slate-soft">
-                Four of these rows go against us. They're in the same table as the rest.
+                Three of these rows go against us. They're in the same table as the rest.
               </p>
             </Reveal>
 

@@ -447,7 +447,7 @@ export const GUIDES: readonly Guide[] = [
         heading: "Where we're weaker",
         paragraphs: [
           "We're newer, so there is less accumulated support knowledge and fewer third-party integrations. Our e-commerce is basic next to a mature storefront product. We don't have hardware partnerships or an installer network.",
-          "And we charge a platform fee on card volume where competitors bundle processing. At high volume that arithmetic goes against us: past about $25,000 a month against a keenly-priced flat-fee system, they are simply cheaper. We publish the crossover rather than hide it.",
+          "And we charge a visible platform fee on card volume where competitors bundle processing into a higher rate. Ours is capped at your subscription so it stops growing, but it is still a line on your statement that theirs isn't — some shops would rather see one number than two.",
           "If any of that is load-bearing for you, buy the thing that has it.",
         ],
       },
@@ -461,7 +461,7 @@ export const GUIDES: readonly Guide[] = [
       {
         question: "What if we outgrow the entry plan?",
         answer:
-          "Plans move up as locations and volume grow, and each tier charges a lower platform fee than the one below it. Above roughly $25,000 a month in card volume our percentage fee can make a flat-priced competitor cheaper — the calculator on our comparison page shows exactly where that line falls.",
+          "You move up for locations or a larger AI intake allowance, never to save money — the platform fee is capped at each plan's own subscription, so the entry plan is the cheapest at every card volume. We won't sell you an upgrade you don't need.",
       },
     ],
     related: ["thrift-store-inventory-basics", "color-tag-markdown-system"],
