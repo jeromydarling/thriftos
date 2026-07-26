@@ -210,7 +210,11 @@ export async function loadStorefrontPage(
              FROM items
             WHERE org_id = ? AND status = 'available' AND price_cents > 0
               AND ${realOnly()}
-            ORDER BY created_at DESC LIMIT 12`,
+            -- Photographed stock first. Every shop puts its best in the window,
+            -- and a grid where a third of the tiles are a title and a price
+            -- reads as a site that's broken rather than a shop that's busy.
+            -- Newest-first within that, so it's still what came in recently.
+            ORDER BY (photo_key IS NOT NULL) DESC, created_at DESC LIMIT 12`,
           shop.orgId
         )
       : Promise.resolve([]),

@@ -192,7 +192,10 @@ function BlockView({
             Everything here is one of a kind, and this list is what's genuinely on the floor right
             now. When something sells it drops off on its own.
           </p>
-          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {/* items-start, so a card with no photograph is a short card rather
+              than a tall one with a hole in it. Stretching every card to the
+              tallest in its row is what made a mixed grid look broken. */}
+          <ul className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.featured.map((item) => (
               <li
                 key={item.id}
@@ -202,12 +205,16 @@ function BlockView({
                 {/* The whole card is the link. A shopper on a phone aiming at a
                     small title is a shopper who doesn't reach the item. */}
                 <a href={`${data.base}/item/${item.id}`} className="block">
+                {/* Square, because that is what the photo cleanup produces and
+                    a grid of squares is the whole point of it. A 4:3 tile crops
+                    a quarter off a tidied square, which is how a hem leaves the
+                    picture after all the work taken not to crop it. */}
                 {item.photoKey ? (
                   <img
                     src={`/api/media/${item.photoKey}?w=600`}
                     alt=""
                     loading="lazy"
-                    className="aspect-[4/3] w-full object-cover"
+                    className="aspect-square w-full object-cover"
                   />
                 ) : null}
                 <div className="p-4">

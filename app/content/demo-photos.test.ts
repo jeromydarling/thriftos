@@ -207,3 +207,25 @@ describe("a demo that predates the shop window", () => {
     expect(seed).toMatch(/`T\$\{String\(1000 \+ i\)\}`/);
   });
 });
+
+describe("the shop window, as a grid", () => {
+  const blocks = readFileSync("app/components/blocks.tsx", "utf8");
+  const storefront = readFileSync("app/lib/storefront.ts", "utf8");
+
+  it("puts photographed stock in the window first", () => {
+    // A grid where a third of the tiles are a title and a price reads as a
+    // broken site rather than a busy shop.
+    expect(storefront).toMatch(/ORDER BY \(photo_key IS NOT NULL\) DESC, created_at DESC/);
+  });
+
+  it("uses square tiles, the shape the cleanup produces", () => {
+    // A 4:3 tile crops a quarter off a tidied square — a hem leaving the
+    // picture after all the work taken not to crop it.
+    expect(blocks).toMatch(/aspect-square w-full object-cover/);
+    expect(blocks).not.toMatch(/aspect-\[4\/3\]/);
+  });
+
+  it("does not stretch a card with no photograph to its neighbour's height", () => {
+    expect(blocks).toMatch(/grid items-start gap-4 sm:grid-cols-2/);
+  });
+});
