@@ -101,6 +101,34 @@ describe("assets tell the truth", () => {
     expect(svg).toMatch(/counts nothing rather than an estimate/);
   });
 
+  it("omits a figure it has no data for rather than printing a zero", () => {
+    // The real-world case: a shop has sold things but never recorded weights.
+    // Found live — the poster printed "0 lbs" in 52-point type beside a true
+    // figure, which makes the whole sheet look wrong.
+    const partial = {
+      ...FULL,
+      impact: {
+        diversionLbs: 0,
+        itemsRehomed: 42,
+        volunteerHours: 0,
+        valueDeliveredCents: 0,
+      },
+    };
+    const svg = render("impact_poster", partial);
+    expect(svg).toContain("42");
+    expect(svg).toContain("items given a second life");
+    expect(svg).not.toContain("0 lbs");
+    expect(svg).not.toContain("volunteer hours given");
+  });
+
+  it("falls back to the honest message when every figure is zero", () => {
+    const nothing = {
+      ...FULL,
+      impact: { diversionLbs: 0, itemsRehomed: 0, volunteerHours: 0, valueDeliveredCents: 0 },
+    };
+    expect(render("impact_poster", nothing)).toContain("Nothing to report yet");
+  });
+
   it("shows real tons rather than a rounded-up boast", () => {
     // 8400 lbs is 4.2 tons.
     expect(render("impact_poster")).toContain("4.2 tons");

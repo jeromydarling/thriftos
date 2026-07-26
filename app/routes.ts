@@ -33,6 +33,7 @@ export default [
     route("money", "routes/app.money.tsx"),
     route("sales/:id", "routes/app.sale.tsx"),
     route("export", "routes/app.export.tsx"),
+    route("studio", "routes/app.studio.tsx"),
     route("inventory", "routes/app.inventory.tsx"),
     route("register", "routes/app.register.tsx"),
     route("people", "routes/app.people.tsx"),

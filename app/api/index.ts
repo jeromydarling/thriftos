@@ -20,6 +20,7 @@ import type { AppEnv } from "../lib/env";
 import { scoreSpam } from "../lib/spam";
 import { connect } from "./connect";
 import { pos } from "./pos";
+import { studio } from "./studio";
 import { resolvePlanId } from "../lib/pricing";
 import { can, getEntitlements, reasonUnavailable } from "../lib/entitlements";
 import { quotePlatformFee, recordFeeAccrual } from "../lib/fees";
@@ -666,5 +667,7 @@ api.get("/api/v1/items", async (c) => {
 api.route("/", connect);
 // Register: card-present payments, refunds, and the cash drawer.
 api.route("/", pos);
+// Brand studio: asset rendering and copy drafts.
+api.route("/", studio);
 
 api.all("/api/*", (c) => json({ error: "Not found" }, 404));

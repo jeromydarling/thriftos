@@ -501,9 +501,43 @@ function impactPoster(
   w: number,
   h: number
 ): string {
-  // A shop with no recorded impact gets an explanation, not four zeroes in
-  // 90-point type. Printing zeroes large would be worse than printing nothing.
-  if (!facts.impact || facts.impact.diversionLbs + facts.impact.itemsRehomed === 0) {
+  // Figures worth printing, which is not the same as figures we have.
+  //
+  // A shop that has sold things but never recorded a weight has a real
+  // items-rehomed number and a diversion of zero. Printing "0 lbs" in 52-point
+  // type next to a true figure makes the whole poster look wrong — so each
+  // figure earns its place independently, and one with nothing to say is left
+  // out rather than shown as a zero.
+  const available: [string, string][] = [];
+  if (facts.impact) {
+    const tons = facts.impact.diversionLbs / 2000;
+    if (facts.impact.diversionLbs > 0) {
+      available.push([
+        tons >= 1 ? `${tons.toFixed(1)} tons` : `${Math.round(facts.impact.diversionLbs)} lbs`,
+        "kept out of landfill",
+      ]);
+    }
+    if (facts.impact.itemsRehomed > 0) {
+      available.push([
+        facts.impact.itemsRehomed.toLocaleString("en-US"),
+        "items given a second life",
+      ]);
+    }
+    if (facts.impact.volunteerHours > 0) {
+      available.push([
+        Math.round(facts.impact.volunteerHours).toLocaleString("en-US"),
+        "volunteer hours given",
+      ]);
+    }
+    if (facts.impact.valueDeliveredCents > 0) {
+      available.push([
+        money(facts.impact.valueDeliveredCents),
+        "saved by the people who shop here",
+      ]);
+    }
+  }
+
+  if (available.length === 0) {
     return `
       ${wordmark(facts, p, display, 48, 48)}
       ${lines(wrap("Nothing to report yet", 22, 2), {
@@ -526,18 +560,7 @@ function impactPoster(
       ${footer(facts, p, bodyFont, w, h)}`;
   }
 
-  const tons = facts.impact.diversionLbs / 2000;
-  const figures: [string, string][] = [
-    [
-      tons >= 1 ? `${tons.toFixed(1)} tons` : `${Math.round(facts.impact.diversionLbs)} lbs`,
-      "kept out of landfill",
-    ],
-    [facts.impact.itemsRehomed.toLocaleString("en-US"), "items given a second life"],
-    [Math.round(facts.impact.volunteerHours).toLocaleString("en-US"), "volunteer hours given"],
-    [money(facts.impact.valueDeliveredCents), "saved by the people who shop here"],
-  ];
-
-  const blocks = figures
+  const blocks = available
     .map(([value, label], i) => {
       const y = 250 + i * 108;
       return `
