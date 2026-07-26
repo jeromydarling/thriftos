@@ -88,8 +88,15 @@ Workers AI has no local emulation. Without it, remove the `ai` block from
 `wrangler.jsonc`; the intake form degrades to manual entry, which is a supported
 path rather than a broken one.
 
+That variable is the *deploy* credential, and it is the only place that name is
+used. The Worker's own Cloudflare access — for shops on a custom domain — is
+`CF_SAAS_API_TOKEN`, named apart on purpose: sharing a name with the deploy
+token invites pasting the deploy token into a public-facing Worker, which would
+let it redeploy itself and read every database on the account. It needs one
+permission, Zone → SSL and Certificates → Edit.
+
 ```bash
-npm test          # 140 tests, no network needed
+npm test          # 594 tests, no network needed
 npm run typecheck
 npm run build
 ```

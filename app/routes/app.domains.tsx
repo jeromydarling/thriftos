@@ -21,14 +21,14 @@ export function meta() {
 }
 
 function configFor(env: {
-  CLOUDFLARE_API_TOKEN?: string;
-  CLOUDFLARE_ZONE_ID?: string;
+  CF_SAAS_API_TOKEN?: string;
+  CF_SAAS_ZONE_ID?: string;
   APP_URL?: string;
 }): DomainConfig | null {
-  if (!env.CLOUDFLARE_API_TOKEN || !env.CLOUDFLARE_ZONE_ID) return null;
+  if (!env.CF_SAAS_API_TOKEN || !env.CF_SAAS_ZONE_ID) return null;
   return {
-    apiToken: env.CLOUDFLARE_API_TOKEN,
-    zoneId: env.CLOUDFLARE_ZONE_ID,
+    apiToken: env.CF_SAAS_API_TOKEN,
+    zoneId: env.CF_SAAS_ZONE_ID,
     cnameTarget: (env.APP_URL ?? "").replace(/^https?:\/\//, "") || "thriftos.app",
   };
 }

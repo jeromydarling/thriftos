@@ -12,7 +12,7 @@
  * website returning a certificate error to its customers. So we ask, and we
  * store the answer.
  *
- * Degrades cleanly. Without `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID`
+ * Degrades cleanly. Without `CF_SAAS_API_TOKEN` and `CF_SAAS_ZONE_ID`
  * the feature reports itself as not switched on, and everything else — the
  * shop's page at /{slug}, the studio, the CMS — carries on working.
  */
@@ -32,10 +32,10 @@ export interface DomainReadiness {
 }
 
 export function domainReadiness(env: {
-  CLOUDFLARE_API_TOKEN?: string;
-  CLOUDFLARE_ZONE_ID?: string;
+  CF_SAAS_API_TOKEN?: string;
+  CF_SAAS_ZONE_ID?: string;
 }): DomainReadiness {
-  if (!env.CLOUDFLARE_API_TOKEN || !env.CLOUDFLARE_ZONE_ID) {
+  if (!env.CF_SAAS_API_TOKEN || !env.CF_SAAS_ZONE_ID) {
     return {
       configured: false,
       reason:

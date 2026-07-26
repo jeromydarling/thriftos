@@ -12,9 +12,9 @@ describe("domainReadiness", () => {
   it("says the feature is off when either secret is missing", () => {
     for (const env of [
       {},
-      { CLOUDFLARE_API_TOKEN: "t" },
-      { CLOUDFLARE_ZONE_ID: "z" },
-      { CLOUDFLARE_API_TOKEN: "", CLOUDFLARE_ZONE_ID: "z" },
+      { CF_SAAS_API_TOKEN: "t" },
+      { CF_SAAS_ZONE_ID: "z" },
+      { CF_SAAS_API_TOKEN: "", CF_SAAS_ZONE_ID: "z" },
     ]) {
       expect(domainReadiness(env).configured, JSON.stringify(env)).toBe(false);
     }
@@ -28,7 +28,7 @@ describe("domainReadiness", () => {
   });
 
   it("is configured when both secrets are present", () => {
-    expect(domainReadiness({ CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ZONE_ID: "z" })).toEqual({
+    expect(domainReadiness({ CF_SAAS_API_TOKEN: "t", CF_SAAS_ZONE_ID: "z" })).toEqual({
       configured: true,
       reason: null,
     });

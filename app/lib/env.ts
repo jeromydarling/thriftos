@@ -18,9 +18,18 @@ export interface AppEnv extends Env {
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
   SENTRY_DSN?: string;
-  /** Cloudflare for SaaS, for shops using their own domain. */
-  CLOUDFLARE_API_TOKEN?: string;
-  CLOUDFLARE_ZONE_ID?: string;
+  /**
+   * Cloudflare for SaaS, for shops using their own domain.
+   *
+   * Deliberately not called CLOUDFLARE_API_TOKEN. That name belongs to the
+   * deploy credential, and a name shared with it is an invitation to paste the
+   * deploy token in here — which would hand a public-facing Worker the ability
+   * to redeploy itself and read every database on the account. This one needs
+   * exactly one permission, Zone → SSL and Certificates → Edit, on the zone
+   * that fronts custom hostnames.
+   */
+  CF_SAAS_API_TOKEN?: string;
+  CF_SAAS_ZONE_ID?: string;
 }
 
 export type IntegrationKey = "stripe" | "email" | "ai" | "images";
