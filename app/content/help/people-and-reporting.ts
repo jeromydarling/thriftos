@@ -394,7 +394,9 @@ export const PEOPLE_ARTICLES: readonly HelpArticle[] = [
         heading: "Trial, and what happens if a payment fails",
         body: [
           "Thirty days free, no card required. If it isn't right, walk away and take your data with you as CSV.",
-          "If a card fails later, you get fourteen days' grace and then some non-essential features pause. The register does not. Cash checkout does not. Data export does not. A shop that owes us money can still take a customer's money and can still leave with its records — locking a till on a Saturday because a card expired isn't a billing strategy.",
+          "If a card fails later, you get fourteen days' grace during which nothing changes at all. After that, three things pause: AI photo intake, your public shop page, and the impact report. That's the whole list.",
+          "The register does not pause. Cash checkout does not. Card checkout does not — that money goes to your Stripe account, not ours, and blocking a customer from paying a charity isn't ours to do. Receipts do not. Data export does not. A shop that owes us money can still take a customer's money and can still leave with every record it owns, because locking a till on a Saturday because a card expired isn't a billing strategy.",
+          "Nothing stops being recorded while things are paused, either. Your impact figures keep accruing from your sales and donations — the report just isn't drawn until billing is sorted, and it comes straight back when it is.",
         ],
         callout: {
           tone: "good",

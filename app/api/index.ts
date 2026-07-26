@@ -21,6 +21,7 @@ import { scoreSpam } from "../lib/spam";
 import { connect } from "./connect";
 import { pos } from "./pos";
 import { resolvePlanId } from "../lib/pricing";
+import { can, getEntitlements, reasonUnavailable } from "../lib/entitlements";
 import { quotePlatformFee, recordFeeAccrual } from "../lib/fees";
 import { record, saleEntries } from "../lib/ledger";
 import {
@@ -101,6 +102,21 @@ api.post("/api/intake/photo", async (c) => {
     );
   }
   await recordAttempt(c.env.KV, limitKey, LIMITS.aiIntake);
+
+  // Photo intake is the discretionary half — it pauses when a shop is
+  // suspended, unlike the register, which never does.
+  const entitlements = await getEntitlements(c.env.DB, user.orgId);
+  if (!can(entitlements, "ai_intake")) {
+    return json(
+      {
+        error: reasonUnavailable(entitlements, "ai_intake"),
+        // Not a dead end: intake by hand is unaffected and the photo is still
+        // stored. Only the guess is paused.
+        manualEntryStillWorks: true,
+      },
+      402
+    );
+  }
 
   const form = await c.req.formData();
   const file = form.get("photo");

@@ -2,6 +2,7 @@ import type { Route } from "./+types/app.impact";
 import { requireUser } from "../lib/auth";
 import { all, first } from "../lib/db";
 import { envFrom } from "../lib/env";
+import { can, getEntitlements, reasonUnavailable } from "../lib/entitlements";
 import {
   impactNarrative,
   lbsToTons,
@@ -20,6 +21,11 @@ export function meta() {
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = envFrom(context);
   const user = await requireUser(request, env.DB);
+
+  // The impact report is discretionary. The numbers behind it keep being
+  // recorded either way — nothing is lost, the report is just not drawn.
+  const entitlements = await getEntitlements(env.DB, user.orgId);
+  const paused = !can(entitlements, "impact_report");
 
 
   // Keep the current month fresh rather than waiting for tonight's cron.
@@ -97,11 +103,13 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     totals: shaped,
     months,
     narrative: impactNarrative(shaped, org?.name ?? "Your shop"),
+    paused,
+    pausedReason: paused ? reasonUnavailable(entitlements, "impact_report") : null,
   };
 }
 
 export default function Impact({ loaderData }: Route.ComponentProps) {
-  const { totals, months, narrative, orgName } = loaderData;
+  const { totals, months, narrative, orgName, paused, pausedReason } = loaderData;
   const tons = lbsToTons(totals.diversionLbs);
 
   return (
@@ -121,6 +129,18 @@ export default function Impact({ loaderData }: Route.ComponentProps) {
           Export CSV
         </a>
       </div>
+
+      {paused ? (
+        <div className="rounded-2xl border border-amber/40 bg-amber/10 p-5">
+          <p className="font-medium text-bark">This report is paused</p>
+          <p className="mt-1 text-sm leading-relaxed text-slate-soft">{pausedReason}</p>
+          <p className="mt-2 text-sm leading-relaxed text-slate-soft">
+            Nothing is lost. Every figure below keeps being recorded from your sales and
+            donations, and the CSV export still works — the report just isn't drawn until
+            billing is sorted.
+          </p>
+        </div>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat

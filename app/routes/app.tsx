@@ -4,6 +4,7 @@ import { requireUser } from "../lib/auth";
 import { envFrom } from "../lib/env";
 import { sampleBatchId } from "../lib/onboarding";
 import { openAlerts } from "../lib/alerts";
+import { billingNotice, getEntitlements } from "../lib/entitlements";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = envFrom(context);
@@ -13,9 +14,10 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   // thing that must never happen is somebody reading a number off a screen
   // without knowing that. A banner that's only on the dashboard isn't a
   // guarantee; this one is.
-  const [hasSampleData, alerts] = await Promise.all([
+  const [hasSampleData, alerts, entitlements] = await Promise.all([
     sampleBatchId(env.DB, user.orgId).then((id) => id !== null),
     openAlerts(env.DB, user.orgId, 5),
+    getEntitlements(env.DB, user.orgId),
   ]);
 
   // Only the critical ones interrupt. A warning belongs on the dashboard, not
@@ -25,6 +27,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   return {
     hasSampleData,
     critical,
+    billing: billingNotice(entitlements),
     user: {
       name: user.name,
       role: user.role,
@@ -50,7 +53,7 @@ const NAV = [
 ];
 
 export default function AppLayout({ loaderData }: Route.ComponentProps) {
-  const { user, hasSampleData, critical } = loaderData;
+  const { user, hasSampleData, critical, billing } = loaderData;
 
   return (
     <div className="min-h-screen bg-linen">
@@ -66,6 +69,19 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
           {critical.length > 1 ? (
             <span className="text-slate-soft"> · and {critical.length - 1} more</span>
           ) : null}
+        </div>
+      ) : null}
+
+      {billing ? (
+        <div
+          className={`px-4 py-2 text-center text-sm text-bark ${
+            billing.tone === "warn" ? "bg-amber/25" : "bg-linen"
+          }`}
+        >
+          {billing.text}{" "}
+          <Link to={billing.href} className="font-medium text-moss underline underline-offset-2">
+            Sort out billing
+          </Link>
         </div>
       ) : null}
 

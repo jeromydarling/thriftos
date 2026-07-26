@@ -2,6 +2,7 @@ import { Link } from "react-router";
 import type { Route } from "./+types/storefront";
 import { all, first } from "../lib/db";
 import { envFrom } from "../lib/env";
+import { can, getEntitlements } from "../lib/entitlements";
 import { jsonLd, marketingMeta, storeSchema } from "../lib/seo";
 import {
   currentDiscountPct,
@@ -51,6 +52,14 @@ export async function loader({ params, context, request }: Route.LoaderArgs) {
   );
 
   if (!org) throw new Response("Not found", { status: 404 });
+
+  // The public shop page is discretionary, so it pauses when a shop is
+  // suspended. A 404 rather than an explanation on purpose: a shopper who
+  // wandered in shouldn't be shown a stranger's billing problem.
+  const entitlements = await getEntitlements(env.DB, org.id);
+  if (!can(entitlements, "storefront")) {
+    throw new Response("Not found", { status: 404 });
+  }
 
   const [items, rules] = await Promise.all([
     all<{
