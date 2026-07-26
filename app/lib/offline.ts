@@ -82,6 +82,11 @@ export interface FlushResult {
   synced: number;
   duplicates: number;
   remaining: number;
+  /** Sales the server refused — e.g. a card-present tender that can't be
+   *  authorised from a replayed queue. These need a person, not a retry. */
+  rejected: { offlineId: string; reason: string }[];
+  /** Lines paid for but not fulfilled, usually a double-scanned unique item. */
+  unfulfilled: number;
   error?: string;
 }
 
@@ -91,7 +96,9 @@ export interface FlushResult {
  */
 export async function flush(): Promise<FlushResult> {
   const sales = await queued();
-  if (sales.length === 0) return { synced: 0, duplicates: 0, remaining: 0 };
+  if (sales.length === 0) {
+    return { synced: 0, duplicates: 0, remaining: 0, rejected: [], unfulfilled: 0 };
+  }
 
   try {
     const res = await fetch("/api/pos/sync", {
@@ -101,23 +108,47 @@ export async function flush(): Promise<FlushResult> {
     });
 
     if (!res.ok) {
-      return { synced: 0, duplicates: 0, remaining: sales.length, error: `Server said ${res.status}` };
+      return {
+        synced: 0,
+        duplicates: 0,
+        remaining: sales.length,
+        rejected: [],
+        unfulfilled: 0,
+        error: `Server said ${res.status}`,
+      };
     }
 
-    const data = (await res.json()) as { synced: number; duplicates: number };
-    // Both "accepted" and "already had it" mean the device can let go.
-    for (const sale of sales) await remove(sale.offlineId);
+    const data = (await res.json()) as {
+      synced: number;
+      duplicates: number;
+      rejected?: { offlineId: string; reason: string }[];
+      unfulfilled?: number;
+    };
+
+    const rejected = data.rejected ?? [];
+    const rejectedIds = new Set(rejected.map((r) => r.offlineId));
+
+    // "Accepted" and "already had it" both mean the device can let go. A
+    // *rejected* sale stays queued — dropping it would lose a real payment,
+    // and it needs a person rather than another automatic retry.
+    for (const sale of sales) {
+      if (!rejectedIds.has(sale.offlineId)) await remove(sale.offlineId);
+    }
 
     return {
       synced: data.synced ?? 0,
       duplicates: data.duplicates ?? 0,
       remaining: (await queued()).length,
+      rejected,
+      unfulfilled: data.unfulfilled ?? 0,
     };
   } catch (err) {
     return {
       synced: 0,
       duplicates: 0,
       remaining: sales.length,
+      rejected: [],
+      unfulfilled: 0,
       error: err instanceof Error ? err.message : "Couldn't reach the server",
     };
   }

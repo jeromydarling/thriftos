@@ -17,6 +17,15 @@ import { toCsv } from "../lib/impact";
 import type { AppEnv } from "../lib/env";
 import { scoreSpam } from "../lib/spam";
 import { resolvePlanId } from "../lib/pricing";
+import { quotePlatformFee, recordFeeAccrual } from "../lib/fees";
+import {
+  applyInventoryEffect,
+  initialStateForTender,
+  isApproved,
+  isOfflineEligible,
+  reserveItems,
+  type Tender,
+} from "../lib/payments";
 
 type Ctx = { Bindings: AppEnv };
 
@@ -157,6 +166,8 @@ api.post("/api/pos/sync", async (c) => {
 
   let synced = 0;
   let duplicates = 0;
+  const conflicts: { offlineId: string; itemIds: string[] }[] = [];
+  const rejected: { offlineId: string; reason: string }[] = [];
 
   for (const sale of sales) {
     if (!sale?.offlineId) continue;
@@ -172,13 +183,41 @@ api.post("/api/pos/sync", async (c) => {
       continue;
     }
 
+    const tender = (sale.tender || "cash") as Tender;
+    const stripeConfigured = Boolean(c.env.STRIPE_SECRET_KEY);
+
+    // A card-present payment cannot be authorised from a replayed browser
+    // queue. Accepting one here would be recording money we never collected.
+    if (!isOfflineEligible(tender, stripeConfigured)) {
+      rejected.push({
+        offlineId: sale.offlineId,
+        reason:
+          "Card-present payments can't be completed from the offline queue — they need the reader and a live connection.",
+      });
+      continue;
+    }
+
     const txId = newId("transaction");
-    const stmts: D1PreparedStatement[] = [
+    const createdAt = sale.createdAt ?? new Date().toISOString();
+    const state = initialStateForTender(tender, { stripeConfigured });
+
+    // Resolve the fee server-side. Nothing about it comes from the browser.
+    const quote = await quotePlatformFee(c.env.DB, user.orgId, {
+      merchandiseSubtotalCents: Math.round(sale.subtotalCents || 0),
+      taxCents: Math.round(sale.taxCents || 0),
+      roundUpCents: Math.round(sale.roundupCents || 0),
+    });
+
+    // Cash and other tenders carry no platform fee — no card, no Connect charge.
+    const platformFee = tender === "cash" || tender === "other" ? 0 : quote.platformFeeCents;
+
+    await c.env.DB.batch([
       c.env.DB.prepare(
         `INSERT INTO transactions
            (id, org_id, cashier_user_id, subtotal_cents, tax_cents, roundup_cents, total_cents,
-            tender, tax_exempt, offline_id, synced_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)`
+            tender, tax_exempt, offline_id, synced_at, created_at,
+            payment_state, fee_policy_id, platform_fee_bps, platform_fee_cents, fee_base_cents)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?)`
       ).bind(
         txId,
         user.orgId,
@@ -187,15 +226,17 @@ api.post("/api/pos/sync", async (c) => {
         Math.round(sale.taxCents || 0),
         Math.round(sale.roundupCents || 0),
         Math.round(sale.totalCents || 0),
-        sale.tender || "cash",
+        tender,
         sale.taxExempt ? 1 : 0,
         sale.offlineId,
-        sale.createdAt ?? new Date().toISOString()
+        createdAt,
+        state,
+        quote.policy.feePolicyId,
+        quote.policy.platformFeeBps,
+        platformFee,
+        quote.feeBaseCents
       ),
-    ];
-
-    for (const line of sale.lines ?? []) {
-      stmts.push(
+      ...(sale.lines ?? []).map((line) =>
         c.env.DB.prepare(
           `INSERT INTO transaction_items
              (id, org_id, transaction_id, item_id, title, price_cents, retail_estimate_cents)
@@ -209,27 +250,68 @@ api.post("/api/pos/sync", async (c) => {
           Math.round(line.priceCents || 0),
           Math.round(line.retailEstimateCents || 0)
         )
-      );
-      if (line.itemId) {
-        stmts.push(
-          c.env.DB.prepare(
-            `UPDATE items SET status = 'sold', sold_at = ?, sold_price_cents = ?, updated_at = datetime('now')
-              WHERE id = ? AND org_id = ?`
-          ).bind(
-            sale.createdAt ?? new Date().toISOString(),
-            Math.round(line.priceCents || 0),
-            line.itemId,
-            user.orgId
-          )
+      ),
+    ]);
+
+    // Reserve first, then let the payment state decide what happens next.
+    // The conditional UPDATE inside reserveItems is what stops two registers
+    // selling the same one-of-a-kind item.
+    const itemIds = (sale.lines ?? [])
+      .map((l) => l.itemId)
+      .filter((id): id is string => Boolean(id));
+
+    const reservation = await reserveItems(c.env.DB, user.orgId, txId, itemIds);
+
+    if (reservation.unavailable.length > 0) {
+      conflicts.push({ offlineId: sale.offlineId, itemIds: reservation.unavailable });
+
+      // The customer paid, so the sale stands — but we couldn't hand over this
+      // item, because another register got it first. Mark the line so the books
+      // show one item sold and one line a person needs to sort out, rather than
+      // two sales of something that only existed once.
+      for (const itemId of reservation.unavailable) {
+        await run(
+          c.env.DB,
+          `UPDATE transaction_items
+              SET fulfillment_state = 'unfulfilled',
+                  fulfillment_note = 'Another sale reserved this item first'
+            WHERE transaction_id = ? AND org_id = ? AND item_id = ?`,
+          txId,
+          user.orgId,
+          itemId
         );
       }
     }
 
-    await c.env.DB.batch(stmts);
+    // Inventory only moves to sold if the payment is genuinely approved.
+    await applyInventoryEffect(c.env.DB, user.orgId, txId, state, createdAt);
+
+    if (platformFee > 0 && isApproved(state)) {
+      await recordFeeAccrual(
+        c.env.DB,
+        user.orgId,
+        platformFee,
+        quote.policy.maximumFeeCents
+      );
+    }
+
     synced++;
   }
 
-  return json({ synced, duplicates });
+  const unresolved = await first<{ n: number }>(
+    c.env.DB,
+    `SELECT COUNT(*) AS n FROM transaction_items
+      WHERE org_id = ? AND fulfillment_state = 'unfulfilled'`,
+    user.orgId
+  );
+
+  return json({
+    synced,
+    duplicates,
+    conflicts,
+    rejected,
+    unfulfilled: Number(unresolved?.n ?? 0),
+  });
 });
 
 /** Item lookup for the register — by tag number or id, with markdown applied. */

@@ -60,6 +60,10 @@ export default function Register({ loaderData }: Route.ComponentProps) {
   const [online, setOnline] = useState(true);
   const [pending, setPending] = useState(0);
   const [flash, setFlash] = useState<string | null>(null);
+  const [needsAttention, setNeedsAttention] = useState<{
+    rejected: { offlineId: string; reason: string }[];
+    unfulfilled: number;
+  }>({ rejected: [], unfulfilled: 0 });
 
   // Connection state drives the banner, not the behaviour: the register works
   // the same either way.
@@ -90,7 +94,13 @@ export default function Register({ loaderData }: Route.ComponentProps) {
     const run = async () => {
       const result = await flush();
       if (cancelled) return;
-      if (result.synced > 0) setFlash(`${result.synced} queued ${result.synced === 1 ? "sale" : "sales"} synced.`);
+      if (result.synced > 0) {
+        setFlash(`${result.synced} queued ${result.synced === 1 ? "sale" : "sales"} synced.`);
+      }
+      // Anything the server couldn't complete needs a person, not a retry.
+      if (result.rejected.length > 0 || result.unfulfilled > 0) {
+        setNeedsAttention({ rejected: result.rejected, unfulfilled: result.unfulfilled });
+      }
       await refreshPending();
     };
 
@@ -187,7 +197,10 @@ export default function Register({ loaderData }: Route.ComponentProps) {
     await refreshPending();
 
     if (navigator.onLine) {
-      await flush();
+      const result = await flush();
+      if (result.rejected.length > 0 || result.unfulfilled > 0) {
+        setNeedsAttention({ rejected: result.rejected, unfulfilled: result.unfulfilled });
+      }
       await refreshPending();
     }
   }
@@ -216,6 +229,29 @@ export default function Register({ loaderData }: Route.ComponentProps) {
       ) : null}
 
       {flash ? <Notice tone="good">{flash}</Notice> : null}
+
+      {needsAttention.unfulfilled > 0 ? (
+        <Notice tone="warn">
+          <strong>
+            {needsAttention.unfulfilled}{" "}
+            {needsAttention.unfulfilled === 1 ? "line was" : "lines were"} paid for but couldn't
+            be handed over.
+          </strong>{" "}
+          Another sale claimed the item first — usually a duplicate tag, or something already
+          sold. The money is recorded; someone needs to sort out the item with the customer.
+        </Notice>
+      ) : null}
+
+      {needsAttention.rejected.length > 0 ? (
+        <Notice tone="warn">
+          <strong>
+            {needsAttention.rejected.length}{" "}
+            {needsAttention.rejected.length === 1 ? "sale" : "sales"} couldn't be synced.
+          </strong>{" "}
+          {needsAttention.rejected[0].reason} They're still saved on this device — nothing is
+          lost, but they need a manager rather than another retry.
+        </Notice>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_22rem]">
         <div className="space-y-4">
