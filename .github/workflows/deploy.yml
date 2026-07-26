@@ -91,7 +91,12 @@ jobs:
           echo "Checking $base"
           fail=0
           for path in / /pricing /help /second-chances; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$base$path" || echo "000")
+            # Cache-bust. Shop pages are edge-cached for two minutes, so a
+            # check running seconds after the deploy will otherwise be answered
+            # by the *previous* version — which is how a build that had
+            # actually fixed the 404 still reported one.
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
+              -H 'Cache-Control: no-cache' "$base$path?deploy=${GITHUB_SHA}" || echo "000")
             echo "$path → $code"
             [ "$code" = "200" ] || fail=1
           done

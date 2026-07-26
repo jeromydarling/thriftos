@@ -1,7 +1,8 @@
 import { redirect } from "react-router";
 import type { Route } from "./+types/demo";
 import { createSession, sessionCookie } from "../lib/auth";
-import { first } from "../lib/db";
+import { first, run } from "../lib/db";
+import { newId } from "../lib/ids";
 import { DEMO_EMAIL, ensureDemoSeeded } from "../lib/seed";
 import { envFrom } from "../lib/env";
 
@@ -15,7 +16,28 @@ import { envFrom } from "../lib/env";
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = envFrom(context);
 
-  await ensureDemoSeeded(env.DB);
+  // A rebuild that fails must not reach a visitor as "Unexpected Server
+  // Error". This is the link in our own marketing copy, so it gets a sentence
+  // a person can read — and the reason goes into system_runs, where the same
+  // failure from the nightly cron is already recorded, rather than into a log
+  // nobody reads.
+  try {
+    await ensureDemoSeeded(env.DB);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("demo rebuild failed:", message);
+    await run(
+      env.DB,
+      `INSERT INTO system_runs (id, job, status, error) VALUES (?, 'demo_rebuild', 'error', ?)`,
+      newId("run"),
+      message
+    ).catch(() => {});
+
+    throw new Response(
+      "The demo shop is being rebuilt and isn't ready yet. Try again in a few minutes — everything else works.",
+      { status: 503 }
+    );
+  }
 
   const user = await first<{ id: string; org_id: string }>(
     env.DB,
