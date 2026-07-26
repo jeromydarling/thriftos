@@ -17,8 +17,10 @@ export default [
   route("logout", "routes/logout.tsx"),
   route("demo", "routes/demo.tsx"),
 
-  // The shop's own public page
-  route("s/:slug", "routes/storefront.tsx"),
+  // The old storefront address, kept as a permanent redirect: shops put their
+  // URL on printed flyers and paper doesn't get redeployed.
+  route("s/:slug", "routes/storefront.legacy.tsx"),
+  route("s/:slug/:page", "routes/storefront.legacy.tsx", { id: "legacy-page" }),
 
   // A customer's receipt. Public by design — a shopper has no login.
   route("r/:token", "routes/receipt.tsx"),
@@ -52,4 +54,13 @@ export default [
   route("robots.txt", "routes/robots.ts"),
   route("sitemap.xml", "routes/sitemap.ts"),
   route("llms.txt", "routes/llms.ts"),
+
+  // A shop's own page, at the root of the path namespace: thriftos.app/{shop}.
+  //
+  // Declared last on purpose. Every system route above wins the match first,
+  // and `reserved_slugs` stops a shop ever claiming one of them — belt and
+  // braces, because a shop losing its website to a marketing page we shipped
+  // would be entirely our fault.
+  route(":slug", "routes/shop.tsx"),
+  route(":slug/:page", "routes/shop.tsx", { id: "shop-page" }),
 ] satisfies RouteConfig;

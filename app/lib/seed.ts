@@ -12,7 +12,10 @@ import { newId } from "./ids";
 import { DEFAULT_MARKDOWN_RULES, tagColorForIntake } from "./markdown";
 import { hashPassword } from "./auth";
 
-export const DEMO_SLUG = "demo";
+// Not "demo": that's the auto-login route, and a shop page now lives at
+// /{slug}. A shop whose slug matched a route would be unreachable, and the
+// redirect from its old address would have signed visitors in by accident.
+export const DEMO_SLUG = "second-chances";
 export const DEMO_EMAIL = "demo@thriftos.app";
 export const DEMO_PASSWORD = "demo-shop-1234";
 
