@@ -20,6 +20,9 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 
 const MODEL = "@cf/black-forest-labs/flux-2-dev";
+const STEPS = 28;
+/** A request still silent after this is stuck, not working. */
+const REQUEST_TIMEOUT_MS = 150_000;
 const OUT_DIR = "public/img";
 const API = "https://api.cloudflare.com/client/v4";
 
@@ -70,12 +73,29 @@ async function generate(account, shot, attempt = 1) {
   form.append("prompt", shot.prompt);
   form.append("width", String(shot.width));
   form.append("height", String(shot.height));
-  form.append("steps", "30");
+  form.append("steps", String(STEPS));
+
+  // Serialise the form to a Buffer rather than handing FormData to fetch.
+  //
+  // Passing FormData directly makes Node send a chunked body with no
+  // Content-Length, and this endpoint can simply never answer one — which is
+  // not a slow request but a hung one, indistinguishable from a slow model
+  // until the job times out. Going through a Response is also the only way to
+  // get the multipart boundary into the Content-Type header.
+  const packed = new Response(form);
+  const body = Buffer.from(await packed.arrayBuffer());
+
+  console.log(`  ${shot.id} — requesting${attempt > 1 ? ` (attempt ${attempt})` : ""}`);
 
   const res = await fetch(`${API}/accounts/${account}/ai/run/${MODEL}`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: form,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": packed.headers.get("content-type"),
+    },
+    body,
+    // A request that hasn't answered in this long is stuck, not working.
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 
   // A busy GPU or a rate limit shouldn't cost a shot for the whole run. Only
@@ -140,17 +160,19 @@ console.log(`Generating ${wanted.length} shot(s) with ${MODEL}\n`);
 
 let failed = 0;
 
-for (const shot of wanted) {
-  const jpeg = join(OUT_DIR, `${shot.id}.jpg`);
-
+const todo = wanted.filter((shot) => {
   // Without an explicit id, an image that already exists is left alone —
   // regenerating the whole set on every run would silently replace art
   // somebody had already looked at and approved.
-  if (!only.length && existsSync(jpeg)) {
+  if (!only.length && existsSync(join(OUT_DIR, `${shot.id}.jpg`))) {
     console.log(`· ${shot.id} — already drawn, skipping`);
-    continue;
+    return false;
   }
+  return true;
+});
 
+async function draw(shot) {
+  const jpeg = join(OUT_DIR, `${shot.id}.jpg`);
   try {
     const bytes = await generate(account, shot);
     const png = join(OUT_DIR, `${shot.id}.png`);
@@ -164,8 +186,21 @@ for (const shot of wanted) {
     }
   } catch (err) {
     failed++;
-    console.error(`✗ ${shot.id} — ${err instanceof Error ? err.message : err}`);
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error(
+      `✗ ${shot.id} — ${err?.name === "TimeoutError" ? `no answer in ${REQUEST_TIMEOUT_MS / 1000}s` : reason}`
+    );
   }
 }
 
+// Three at a time. Sequential meant one slow shot delayed every shot behind
+// it; unbounded would just get us rate limited.
+const queue = [...todo];
+await Promise.all(
+  Array.from({ length: Math.min(3, queue.length) }, async () => {
+    while (queue.length) await draw(queue.shift());
+  })
+);
+
+console.log(`\nDrew ${todo.length - failed} of ${todo.length}.`);
 process.exit(failed > 0 ? 1 : 0);

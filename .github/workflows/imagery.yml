@@ -34,14 +34,17 @@ on:
       - scripts/generate-imagery.mjs
       - .github/workflows/imagery.yml
 
+# A newer push supersedes an in-flight draw. Safe because a shot that already
+# exists is skipped, so the replacement run picks up exactly what's missing —
+# and it means a stuck request can be cleared by pushing rather than waited out.
 concurrency:
   group: imagery
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   draw:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     permissions:
       contents: write
 
@@ -73,7 +76,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # Runs even when drawing failed: five good images and one timeout should
+      # keep the five. Without this a single stuck request throws away the
+      # whole run's work, which is exactly what happened the first time.
       - name: Commit whatever was drawn
+        if: always()
         run: |
           if [ -z "$(git status --porcelain public/img)" ]; then
             echo "Nothing new to commit."
