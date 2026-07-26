@@ -17,8 +17,10 @@ import { toCsv } from "../lib/impact";
 import type { AppEnv } from "../lib/env";
 import { scoreSpam } from "../lib/spam";
 import { connect } from "./connect";
+import { pos } from "./pos";
 import { resolvePlanId } from "../lib/pricing";
 import { quotePlatformFee, recordFeeAccrual } from "../lib/fees";
+import { record, saleEntries } from "../lib/ledger";
 import {
   applyInventoryEffect,
   initialStateForTender,
@@ -165,6 +167,18 @@ api.post("/api/pos/sync", async (c) => {
   if (!Array.isArray(sales) || sales.length === 0) return json({ synced: 0, duplicates: 0 });
   if (sales.length > 200) return json({ error: "Too many at once — sync in smaller batches." }, 400);
 
+  // Attach these sales to whatever drawer is open, so the cash reconciliation
+  // at close has something to add up. Sales rung up with no drawer open are
+  // still recorded — they just won't appear in a variance, which is honest:
+  // we don't know which drawer the money went into.
+  const openDrawer = await first<{ id: string }>(
+    c.env.DB,
+    `SELECT id FROM register_shifts WHERE org_id = ? AND status = 'open'
+      ORDER BY opened_at DESC LIMIT 1`,
+    user.orgId
+  );
+  const openDrawerId = openDrawer?.id ?? null;
+
   let synced = 0;
   let duplicates = 0;
   const conflicts: { offlineId: string; itemIds: string[] }[] = [];
@@ -217,8 +231,9 @@ api.post("/api/pos/sync", async (c) => {
         `INSERT INTO transactions
            (id, org_id, cashier_user_id, subtotal_cents, tax_cents, roundup_cents, total_cents,
             tender, tax_exempt, offline_id, synced_at, created_at,
-            payment_state, fee_policy_id, platform_fee_bps, platform_fee_cents, fee_base_cents)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?)`
+            payment_state, fee_policy_id, platform_fee_bps, platform_fee_cents, fee_base_cents,
+            shift_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         txId,
         user.orgId,
@@ -235,7 +250,8 @@ api.post("/api/pos/sync", async (c) => {
         quote.policy.feePolicyId,
         quote.policy.platformFeeBps,
         platformFee,
-        quote.feeBaseCents
+        quote.feeBaseCents,
+        openDrawerId
       ),
       ...(sale.lines ?? []).map((line) =>
         c.env.DB.prepare(
@@ -294,6 +310,26 @@ api.post("/api/pos/sync", async (c) => {
         platformFee,
         quote.policy.maximumFeeCents
       );
+    }
+
+    // The books, for anything that actually took money. A cash sale completes
+    // the moment it's rung up, so it posts here; a card sale posts from the
+    // webhook once Stripe confirms it, which is why this is guarded on the
+    // payment state rather than simply running for every synced sale.
+    if (isApproved(state)) {
+      for (const entry of saleEntries({
+        orgId: user.orgId,
+        transactionId: txId,
+        shiftId: openDrawerId,
+        subtotalCents: Math.round(sale.subtotalCents || 0),
+        taxCents: Math.round(sale.taxCents || 0),
+        roundUpCents: Math.round(sale.roundupCents || 0),
+        platformFeeCents: platformFee,
+        tender,
+        occurredAt: createdAt,
+      })) {
+        await record(c.env.DB, entry);
+      }
     }
 
     synced++;
@@ -527,5 +563,7 @@ api.get("/api/v1/items", async (c) => {
 
 // Connect onboarding and the Stripe webhook. Mounted before the catch-all.
 api.route("/", connect);
+// Register: card-present payments, refunds, and the cash drawer.
+api.route("/", pos);
 
 api.all("/api/*", (c) => json({ error: "Not found" }, 404));

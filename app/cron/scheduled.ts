@@ -12,6 +12,10 @@ import { newId } from "../lib/ids";
 import { generateSignals } from "../lib/nri/engine";
 import { ensureDemoSeeded, seedDemoOrg, DEMO_SLUG } from "../lib/seed";
 import { DIVERTED_STATUS_SQL, realOnly } from "../lib/impact";
+import type { AppEnv } from "../lib/env";
+import { advanceAttempt, staleAttempts } from "../lib/attempts";
+import { applyInventoryEffect, type PaymentState } from "../lib/payments";
+import { getPaymentIntent, stateForIntent } from "../lib/stripe/terminal";
 
 async function record(
   db: D1Database,
@@ -55,7 +59,7 @@ async function activeOrgIds(db: D1Database): Promise<string[]> {
   return rows.map((r) => r.id);
 }
 
-export async function runDaily(env: Env): Promise<void> {
+export async function runDaily(env: AppEnv): Promise<void> {
   const db = env.DB;
 
   await record(db, "session_cleanup", async () => {
@@ -72,6 +76,61 @@ export async function runDaily(env: Env): Promise<void> {
     return { orgs: orgs.length, periods_written: written };
   });
 
+  // Payments nobody finished.
+  //
+  // A reader session that was abandoned — the customer walked off, the tablet
+  // was closed — leaves an attempt in flight holding its items reserved. Those
+  // items are unsellable until something notices, so something has to.
+  //
+  // Stripe is asked rather than assumed: an attempt that has actually
+  // succeeded gets finalised, and only one that genuinely went nowhere is
+  // released. Timing out a payment locally would eventually release items on a
+  // sale that did go through.
+  await record(db, "stale_payments", async () => {
+    const stale = await staleAttempts(db, 30);
+    let released = 0;
+    let recovered = 0;
+
+    for (const attempt of stale) {
+      let state: PaymentState = "canceled";
+
+      if (attempt.stripe_payment_intent_id && env.STRIPE_SECRET_KEY) {
+        try {
+          const intent = await getPaymentIntent(
+            { secretKey: env.STRIPE_SECRET_KEY },
+            attempt.stripe_payment_intent_id
+          );
+          state = stateForIntent(intent.status);
+        } catch {
+          // Stripe unreachable. Leave it alone rather than releasing goods on
+          // a payment we can't ask about — it'll be swept again tomorrow.
+          continue;
+        }
+        // Still genuinely in progress. Not stale, just slow.
+        if (state === "processing" || state === "requires_action") continue;
+      }
+
+      await advanceAttempt(db, attempt.org_id, attempt.id, {
+        state,
+        failureMessage:
+          state === "canceled" ? "Abandoned at the reader and swept automatically." : null,
+      });
+      await run(
+        db,
+        `UPDATE transactions SET payment_state = ? WHERE id = ? AND org_id = ?`,
+        state,
+        attempt.transaction_id,
+        attempt.org_id
+      );
+      await applyInventoryEffect(db, attempt.org_id, attempt.transaction_id, state);
+
+      if (state === "succeeded") recovered++;
+      else released++;
+    }
+
+    return { swept: stale.length, released, recovered };
+  });
+
   // The demo must never be found empty by a visitor.
   await record(db, "demo_selfheal", async () => {
     const orgId = await ensureDemoSeeded(db);
@@ -79,7 +138,7 @@ export async function runDaily(env: Env): Promise<void> {
   });
 }
 
-export async function runWeekly(env: Env): Promise<void> {
+export async function runWeekly(env: AppEnv): Promise<void> {
   const db = env.DB;
 
   await record(db, "nri_weekly", async () => {

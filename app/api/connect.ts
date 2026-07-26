@@ -8,22 +8,20 @@
  * influence, which is exactly why it's authoritative.
  */
 import { Hono } from "hono";
-import { first, run } from "../lib/db";
+import { first } from "../lib/db";
 import { getUser, roleAtLeast } from "../lib/auth";
 import type { AppEnv } from "../lib/env";
-import { stripeReadiness, verifyWebhookSignature, StripeError } from "../lib/stripe/client";
+import { stripeReadiness, StripeError } from "../lib/stripe/client";
+import { failedEvents, handleWebhook, replayEvent } from "../lib/stripe/webhooks";
 import {
   canAcceptPayments,
   createDashboardLink,
   createOnboardingLink,
   ensureAccount,
   getAccount,
-  getAccountByStripeId,
-  markDeauthorized,
   retrieveAccount,
   statusExplanation,
   syncAccount,
-  type StripeAccountObject,
 } from "../lib/stripe/connect";
 
 type Ctx = { Bindings: AppEnv };
@@ -218,19 +216,15 @@ interface StripeEvent {
 /**
  * The Stripe webhook endpoint.
  *
- * Order matters here and is deliberate:
- *   1. read the RAW body (parsing first would break signature verification)
- *   2. verify the signature
- *   3. record the event id BEFORE any side effect
- *   4. only then act
- *
- * Step 3 is what makes redelivery safe. Stripe retries, and it does not
- * guarantee order — so handlers re-fetch the object rather than trusting the
- * payload to be current.
+ * Thin on purpose. Verification, the event store, dispatch, and replay all
+ * live in lib/stripe/webhooks.ts so that the same logic can be exercised by
+ * tests without an HTTP layer, and so there is exactly one place where a
+ * Stripe event becomes a fact about our database.
  */
 connect.post("/api/stripe/webhook", async (c) => {
+  // The RAW body. Parsing first and re-serialising changes the bytes and the
+  // signature will not verify.
   const raw = await c.req.text();
-  const signature = c.req.header("stripe-signature") ?? null;
 
   const secret = c.env.STRIPE_CONNECT_WEBHOOK_SECRET ?? c.env.STRIPE_WEBHOOK_SECRET;
   if (!secret) {
@@ -238,113 +232,37 @@ connect.post("/api/stripe/webhook", async (c) => {
     return json({ error: "Webhooks are not configured." }, 503);
   }
 
-  const verified = await verifyWebhookSignature(raw, signature, secret);
-  if (!verified.valid) {
-    // Never process an unverified payload. Anyone can POST to this URL.
-    console.warn("stripe webhook rejected:", verified.reason);
-    return json({ error: "Invalid signature" }, 400);
+  const { status, result } = await handleWebhook(c.env.DB, {
+    rawBody: raw,
+    signature: c.req.header("stripe-signature") ?? null,
+    secret,
+    config: c.env.STRIPE_SECRET_KEY ? { secretKey: c.env.STRIPE_SECRET_KEY } : null,
+  });
+
+  if (result.outcome === "failed" && result.eventId) {
+    console.error("webhook processing failed:", result.eventType, result.detail);
   }
 
-  let event: StripeEvent;
-  try {
-    event = JSON.parse(raw) as StripeEvent;
-  } catch {
-    return json({ error: "Malformed payload" }, 400);
-  }
-
-  // Record before acting. A duplicate delivery stops right here.
-  const seen = await first<{ stripe_event_id: string; status: string }>(
-    c.env.DB,
-    `SELECT stripe_event_id, status FROM stripe_events WHERE stripe_event_id = ?`,
-    event.id
-  );
-
-  if (seen && seen.status === "processed") {
-    return json({ received: true, duplicate: true });
-  }
-
-  if (!seen) {
-    await run(
-      c.env.DB,
-      `INSERT OR IGNORE INTO stripe_events
-         (stripe_event_id, account_context, event_type, object_id, status)
-       VALUES (?, ?, ?, ?, 'received')`,
-      event.id,
-      event.account ?? null,
-      event.type,
-      String((event.data?.object as { id?: string })?.id ?? "")
-    );
-  }
-
-  try {
-    const handled = await handleEvent(c.env, event);
-    await run(
-      c.env.DB,
-      `UPDATE stripe_events
-          SET status = ?, attempts = attempts + 1, processed_at = datetime('now'), last_error = NULL
-        WHERE stripe_event_id = ?`,
-      handled ? "processed" : "ignored",
-      event.id
-    );
-    return json({ received: true, handled });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await run(
-      c.env.DB,
-      `UPDATE stripe_events
-          SET status = 'failed', attempts = attempts + 1, last_error = ?
-        WHERE stripe_event_id = ?`,
-      message.slice(0, 500),
-      event.id
-    );
-    // 500 asks Stripe to retry. The event row records why it failed.
-    console.error("webhook processing failed:", event.type, message);
-    return json({ error: "Processing failed" }, 500);
-  }
+  return json({ received: status === 200, ...result }, status);
 });
 
-/** Returns true if we acted on the event, false if it isn't one we care about. */
-async function handleEvent(env: AppEnv, event: StripeEvent): Promise<boolean> {
-  switch (event.type) {
-    case "account.updated": {
-      const account = event.data.object as unknown as StripeAccountObject;
-      const local = await getAccountByStripeId(env.DB, account.id);
-      if (!local) return false;
+/**
+ * Replay an event whose handler failed.
+ *
+ * Fetches the current object from Stripe rather than replaying the stored
+ * payload — the payload was true when it was sent and may not be now.
+ */
+connect.post("/api/stripe/events/:id/replay", async (c) => {
+  const guard = await requireAdmin(c);
+  if (guard.error) return guard.error;
+  if (!c.env.STRIPE_SECRET_KEY) return json({ error: "Stripe isn't configured." }, 503);
 
-      // Events can arrive out of order, so re-fetch rather than trusting the
-      // payload to be the newest truth.
-      const fresh = env.STRIPE_SECRET_KEY
-        ? await retrieveAccount({ secretKey: env.STRIPE_SECRET_KEY }, account.id)
-        : account;
+  const result = await replayEvent(c.env.DB, config(c.env), c.req.param("id"));
+  return json(result, result.outcome === "failed" ? 422 : 200);
+});
 
-      await syncAccount(env.DB, local.orgId, fresh);
-      return true;
-    }
-
-    case "account.application.deauthorized": {
-      const accountId = event.account ?? (event.data.object as { id?: string })?.id;
-      if (!accountId) return false;
-      await markDeauthorized(env.DB, accountId);
-      return true;
-    }
-
-    case "capability.updated": {
-      const capability = event.data.object as { account?: string };
-      if (!capability.account || !env.STRIPE_SECRET_KEY) return false;
-      const local = await getAccountByStripeId(env.DB, capability.account);
-      if (!local) return false;
-
-      const fresh = await retrieveAccount(
-        { secretKey: env.STRIPE_SECRET_KEY },
-        capability.account
-      );
-      await syncAccount(env.DB, local.orgId, fresh);
-      return true;
-    }
-
-    default:
-      // Payment, refund, dispute, and billing events land in later steps.
-      // Recording them as ignored is honest, and leaves a trail.
-      return false;
-  }
-}
+connect.get("/api/stripe/events/failed", async (c) => {
+  const guard = await requireAdmin(c);
+  if (guard.error) return guard.error;
+  return json({ events: await failedEvents(c.env.DB) });
+});

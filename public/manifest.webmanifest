@@ -1,0 +1,14 @@
+{
+  "name": "ThriftOS",
+  "short_name": "ThriftOS",
+  "description": "Point of sale, inventory, donations, and impact reporting for thrift stores.",
+  "start_url": "/app/register",
+  "scope": "/app",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#FAF7F2",
+  "theme_color": "#2F6F5E",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

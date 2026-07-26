@@ -33,6 +33,15 @@ export const ID_PREFIX = {
   suppression: "su",
   run: "ru",
   batch: "ib",
+  attempt: "pa",
+  ledger: "le",
+  register: "rg",
+  registerShift: "rs",
+  cashMovement: "cm",
+  terminalLocation: "tl",
+  terminalReader: "tr",
+  refund: "rf",
+  dispute: "dp",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIX;

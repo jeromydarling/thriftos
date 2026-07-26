@@ -26,6 +26,8 @@ export default [
     route("welcome", "routes/app.welcome.tsx"),
     route("import", "routes/app.import.tsx"),
     route("intake", "routes/app.intake.tsx"),
+    route("drawer", "routes/app.drawer.tsx"),
+    route("money", "routes/app.money.tsx"),
     route("inventory", "routes/app.inventory.tsx"),
     route("register", "routes/app.register.tsx"),
     route("people", "routes/app.people.tsx"),

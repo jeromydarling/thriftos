@@ -6,6 +6,8 @@ import { envFrom } from "../lib/env";
 import { Badge, Button, Card, Input, Notice, money } from "../components/ui";
 import { TAG_COLOR_HEX } from "../lib/markdown";
 import { enqueue, flush, newOfflineId, queued, type QueuedLine } from "../lib/offline";
+import { canAcceptPayments, getAccount } from "../lib/stripe/connect";
+import { orgReaders } from "../lib/stripe/terminal";
 
 export function meta() {
   return [{ title: "Register | ThriftOS" }];
@@ -22,14 +24,23 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   );
   const settings = parseSettings(org?.settings_json);
 
+  // Readers are shown only if the shop can actually take a card. An account
+  // still in onboarding would give a cashier a button that always fails.
+  const account = await getAccount(env.DB, user.orgId);
+  const cardReady = Boolean(env.STRIPE_SECRET_KEY) && Boolean(account && canAcceptPayments(account));
+
   return {
     orgName: org?.name ?? "",
     taxRateBps: Number(settings.taxRateBps ?? 0),
     roundUpEnabled: settings.roundUpEnabled !== false,
     roundUpCause: String(settings.roundUpCause ?? "our community programs"),
     stripeLive: Boolean(env.STRIPE_SECRET_KEY),
+    cardReady,
+    readers: cardReady ? await orgReaders(env.DB, user.orgId) : [],
   };
 }
+
+type TerminalPhase = "idle" | "starting" | "waiting" | "succeeded" | "failed";
 
 interface LookupItem {
   id: string;
@@ -49,7 +60,7 @@ interface CartLine extends QueuedLine {
 }
 
 export default function Register({ loaderData }: Route.ComponentProps) {
-  const { taxRateBps, roundUpEnabled, roundUpCause, stripeLive } = loaderData;
+  const { taxRateBps, roundUpEnabled, roundUpCause, stripeLive, cardReady, readers } = loaderData;
 
   const [cart, setCart] = useState<CartLine[]>([]);
   const [query, setQuery] = useState("");
@@ -64,6 +75,11 @@ export default function Register({ loaderData }: Route.ComponentProps) {
     rejected: { offlineId: string; reason: string }[];
     unfulfilled: number;
   }>({ rejected: [], unfulfilled: 0 });
+
+  const [readerId, setReaderId] = useState(readers[0]?.id ?? "");
+  const [phase, setPhase] = useState<TerminalPhase>("idle");
+  const [terminalTx, setTerminalTx] = useState<string | null>(null);
+  const [terminalError, setTerminalError] = useState<string | null>(null);
 
   // Connection state drives the banner, not the behaviour: the register works
   // the same either way.
@@ -203,6 +219,114 @@ export default function Register({ loaderData }: Route.ComponentProps) {
       }
       await refreshPending();
     }
+  }
+
+  /**
+   * Take a card on the reader.
+   *
+   * Nothing is queued and nothing is optimistic. The server prices the cart
+   * from the items table, creates the charge, and hands it to the reader; the
+   * customer taps; Stripe decides. We poll until it has, and the sale is only
+   * complete when Stripe says so — a green light on the reader is not payment.
+   */
+  async function payByCard() {
+    const itemIds = cart.map((line) => line.itemId).filter((id): id is string => Boolean(id));
+
+    // Every price is computed server-side from the items table, so an amount
+    // typed at the counter has nothing to compute from. Cash handles it.
+    if (itemIds.length !== cart.length) {
+      setTerminalError(
+        "Manually-priced lines can't go on a card, because the price has to come from a real item record. Take cash for this one, or log the item first."
+      );
+      return;
+    }
+
+    setTerminalError(null);
+    setPhase("starting");
+
+    try {
+      const res = await fetch("/api/pos/terminal/pay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemIds, readerId, roundUpCents: roundUpCents, taxExempt }),
+      });
+      const data = (await res.json()) as {
+        transactionId?: string;
+        error?: string;
+        state?: string;
+      };
+
+      if (!res.ok || !data.transactionId) {
+        setPhase("failed");
+        setTerminalError(data.error ?? "We couldn't start the payment.");
+        return;
+      }
+
+      setTerminalTx(data.transactionId);
+      setPhase("waiting");
+      await pollUntilSettled(data.transactionId);
+    } catch {
+      setPhase("failed");
+      setTerminalError(
+        "We lost the connection while starting that payment. Check the reader before trying again — if it took the card, the sale will appear on its own."
+      );
+    }
+  }
+
+  /**
+   * Poll until Stripe reaches a terminal state.
+   *
+   * Deliberately gives up rather than spinning forever. A payment that hasn't
+   * resolved in two minutes needs a person to look at the reader, and a cashier
+   * staring at a spinner is worse than one being told that plainly.
+   */
+  async function pollUntilSettled(txId: string) {
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        const res = await fetch(`/api/pos/terminal/status/${txId}`);
+        const data = (await res.json()) as { state?: string };
+
+        if (data.state === "succeeded") {
+          setPhase("succeeded");
+          setFlash(`${money(total)} — thank you.`);
+          setCart([]);
+          setTaxExempt(false);
+          setRoundUp(roundUpEnabled);
+          setTerminalTx(null);
+          setTimeout(() => setPhase("idle"), 2500);
+          return;
+        }
+        if (data.state === "failed" || data.state === "canceled") {
+          setPhase("failed");
+          setTerminalError(
+            data.state === "canceled"
+              ? "That payment was cancelled. Nothing was charged."
+              : "The card was declined. Nothing was charged — try another card, or take cash."
+          );
+          return;
+        }
+      } catch {
+        // A dropped poll is not a failed payment. Keep waiting.
+      }
+    }
+
+    setPhase("failed");
+    setTerminalError(
+      "This is taking longer than it should. Check the reader — if the payment did go through, it'll appear in Money on its own."
+    );
+  }
+
+  async function cancelCard() {
+    if (!terminalTx) return;
+    await fetch("/api/pos/terminal/cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transactionId: terminalTx, readerId }),
+    }).catch(() => {});
+    setPhase("idle");
+    setTerminalTx(null);
+    setTerminalError(null);
   }
 
   return (
@@ -406,27 +530,100 @@ export default function Register({ loaderData }: Route.ComponentProps) {
           </div>
 
           <div className="mt-4 space-y-2 border-t border-line pt-4">
-            <Button
-              type="button"
-              className="w-full"
-              disabled={cart.length === 0}
-              onClick={() => complete("cash")}
-            >
-              Cash
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              className="w-full"
-              disabled={cart.length === 0}
-              onClick={() => complete("card")}
-            >
-              Card
-            </Button>
-            {!stripeLive ? (
-              <p className="text-xs leading-relaxed text-slate-soft">
-                Card sales are recorded but not charged — Stripe isn't connected yet. Cash
-                works fully.
+            {phase === "waiting" || phase === "starting" ? (
+              <div className="rounded-xl border border-moss/30 bg-moss/5 p-4 text-center">
+                <p className="font-medium text-bark">
+                  {phase === "starting" ? "Sending to the reader…" : "Waiting for the card"}
+                </p>
+                <p className="mt-1 text-sm leading-relaxed text-slate-soft">
+                  {phase === "starting"
+                    ? "One moment."
+                    : `Ask for ${money(total)} on the reader. Don't close this screen.`}
+                </p>
+                <button
+                  type="button"
+                  onClick={cancelCard}
+                  className="mt-3 text-sm text-clay underline underline-offset-2"
+                >
+                  Cancel this payment
+                </button>
+              </div>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  className="w-full"
+                  disabled={cart.length === 0}
+                  onClick={() => complete("cash")}
+                >
+                  Cash
+                </Button>
+
+                {cardReady && readers.length > 0 ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="w-full"
+                      disabled={cart.length === 0 || !online}
+                      onClick={payByCard}
+                    >
+                      Card on the reader
+                    </Button>
+
+                    {readers.length > 1 ? (
+                      <select
+                        value={readerId}
+                        onChange={(e) => setReaderId(e.target.value)}
+                        className="touch-target w-full rounded-xl border border-line bg-white px-3 py-2 text-sm text-bark"
+                      >
+                        {readers.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.label} · {r.status}
+                            {r.is_simulated ? " (simulated)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+
+                    {!online ? (
+                      <p className="text-xs leading-relaxed text-slate-soft">
+                        Card payments need a connection — the reader has to reach the bank.
+                        Cash still works and syncs later.
+                      </p>
+                    ) : readers[0]?.is_simulated ? (
+                      <p className="text-xs leading-relaxed text-clay">
+                        This is a simulated reader. It behaves like the real thing but takes no
+                        money.
+                      </p>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="w-full"
+                      disabled={cart.length === 0}
+                      onClick={() => complete("card")}
+                    >
+                      Card
+                    </Button>
+                    <p className="text-xs leading-relaxed text-slate-soft">
+                      {!stripeLive
+                        ? "Card sales are recorded but not charged — Stripe isn't connected yet. Cash works fully."
+                        : !cardReady
+                          ? "Payment setup isn't finished, so card sales are recorded but not charged. Cash works fully."
+                          : "No reader is paired yet, so card sales are recorded but not charged."}
+                    </p>
+                  </>
+                )}
+              </>
+            )}
+
+            {terminalError ? (
+              <p className="rounded-xl border border-clay/30 bg-clay/5 p-3 text-sm leading-relaxed text-bark">
+                {terminalError}
               </p>
             ) : null}
           </div>
