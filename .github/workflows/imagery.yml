@@ -54,6 +54,19 @@ jobs:
         with:
           node-version: 22
 
+      # Which token is this, and what is it allowed to do?
+      #
+      # Nobody remembers creating it, and Cloudflare's own answer to a token
+      # without a permission is a bare "Authentication error" that names
+      # neither the token nor what it was missing. This prints the token's
+      # name, its id, and its permission groups — enough to find it in the
+      # dashboard — and no part of the credential itself.
+      - name: Identify the token
+        continue-on-error: true
+        run: node scripts/token-info.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       - name: Draw
         run: node scripts/generate-imagery.mjs ${{ inputs.shots }}
         env:
