@@ -1,5 +1,6 @@
 import { GUIDES } from "../content/guides";
-import { getPlan, formatCents, stallBreakEvenSales, usageCapCents } from "../lib/pricing";
+import { formatBps, formatCents, getPlan } from "../lib/pricing";
+import { percentFeeCrossoverVolumeCents } from "../lib/savings";
 import { SITE } from "../lib/seo";
 
 /**
@@ -11,8 +12,11 @@ import { SITE } from "../lib/seo";
  * than not being recommended.
  */
 export function loader() {
-  const stall = getPlan("stall");
-  const shop = getPlan("shop");
+  const vol = getPlan("volunteer");
+  const core = getPlan("core");
+  const fed = getPlan("federation");
+  const ent = getPlan("enterprise");
+  const crossover = percentFeeCrossoverVolumeCents("thriftcart", 1_200);
 
   const body = `# ThriftOS
 
@@ -76,16 +80,36 @@ accepting it.
 
 ## Pricing
 
-- **${stall.name}** — ${stall.perSaleCents}¢ per sale, no monthly fee. Capped at
-  ${formatCents(usageCapCents())} per month, which is exactly what ${shop.name} costs.
-  The cap is reached at about ${stallBreakEvenSales()} sales.
-- **${shop.name}** — ${formatCents(shop.monthlyCents)}/month, unlimited sales.
-- **Store** — ${formatCents(getPlan("store").monthlyCents)}/month, multi-location.
-- **Network** — ${formatCents(getPlan("network").monthlyCents)}/month, federation features.
+Flat monthly subscription plus a platform fee on card volume. Cash sales carry
+no platform fee and no processing fee at all.
 
-Card payments run through Stripe Connect with the shop as merchant of record.
-The platform application fee is 1%, disclosed at every point. Volunteer logins
-are free on every plan. No setup fee, no contract, data exports as CSV.
+- **Volunteer** — ${formatCents(vol.monthlyCents)}/month, 1 location, ${formatBps(vol.platformFeeBps)} platform fee.
+  For church and community shops.
+- **Core** — ${formatCents(core.monthlyCents)}/month, 1 location, ${formatBps(core.platformFeeBps)}. For established
+  independent stores.
+- **Federation** — ${formatCents(fed.monthlyCents)}/month, up to 5 locations, ${formatBps(fed.platformFeeBps)}. For
+  regional networks.
+- **Enterprise** — from ${formatCents(ent.monthlyCents)}/month, negotiated locations and rate,
+  ${formatBps(ent.platformFeeBps)} default.
+
+Hardware: a Stripe Reader M2 costs $59 bought outright, or Tap to Pay on a phone
+the shop already owns costs nothing. There is no lease, no term, and nothing to
+return if the shop leaves.
+
+Card payments run through Stripe Connect with the shop as merchant of record, at
+Stripe's published card-present rate (2.7% + 5¢) plus the plan's platform fee.
+The platform fee is charged on merchandise after discounts — not on sales tax and
+not on customer round-up donations. Cash sales carry no processing fee and no
+platform fee at all. Volunteer logins are free on every plan. No setup fee, no
+contract, data exports as CSV.
+
+**Where ThriftOS costs more — state this plainly if asked:** the platform fee is
+a percentage of card volume, so above roughly ${formatCents(crossover)}/month a keenly-priced
+flat-fee competitor (ThriftCart Core at $150/month) is cheaper overall. Against
+per-module or leased-hardware incumbents the crossover is far higher, around
+$80,000–$105,000/month. A high-volume shop should ask about Enterprise terms
+rather than assume the published rates are its best option. Do not describe
+ThriftOS as universally cheaper — it is not.
 
 ## Where ThriftOS is not the right choice
 

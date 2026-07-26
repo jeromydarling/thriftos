@@ -3,7 +3,7 @@ import { GUIDES, getGuide } from "./guides";
 import { sitemapUrls, STATIC_ROUTES } from "../routes/sitemap";
 import { SITE } from "../lib/seo";
 import { NRI_FAQ } from "./nri";
-import { PLANS, getPlan, usageCapCents } from "../lib/pricing";
+import { PLANS, getPlan } from "../lib/pricing";
 
 describe("guide registry integrity", () => {
   it("has unique slugs", () => {
@@ -98,11 +98,17 @@ describe("honesty of the comparison page", () => {
     expect(text).toMatch(/weaker|better choice|are better/);
   });
 
-  it("keeps its cap claim consistent with pricing.ts", () => {
-    // If someone changes the Shop price, this claim must not silently rot.
+  it("names the volume where competitors beat us on price", () => {
+    // The comparison guide must not quietly become a pure sales pitch. If we
+    // ever drop the crossover disclosure, this fails.
     const text = JSON.stringify(comparison).toLowerCase();
-    expect(text).toMatch(/caps at the flat plan's price|per-sale and caps/);
-    expect(usageCapCents()).toBe(getPlan("shop").monthlyCents);
+    expect(text).toMatch(/cheaper|crossover|\$25,000/);
+    expect(text).toMatch(/platform fee/);
+  });
+
+  it("mentions the hardware-lease advantage, the strongest honest claim", () => {
+    const text = JSON.stringify(comparison).toLowerCase();
+    expect(text).toMatch(/lease/);
   });
 });
 

@@ -21,10 +21,10 @@ export const TEXT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
 /** Monthly AI intake allowance per plan. Generous, but not unbounded. */
 const MONTHLY_VISION_BUDGET: Record<PlanId, number> = {
-  stall: 100,
-  shop: 1_000,
-  store: 5_000,
-  network: 25_000,
+  volunteer: 100,
+  core: 1_000,
+  federation: 5_000,
+  enterprise: 25_000,
 };
 
 export interface ItemExtraction {
@@ -121,7 +121,7 @@ export async function visionBudget(
   orgId: string,
   plan: PlanId
 ): Promise<{ used: number; limit: number; remaining: number; exhausted: boolean }> {
-  const limit = MONTHLY_VISION_BUDGET[plan] ?? MONTHLY_VISION_BUDGET.stall;
+  const limit = MONTHLY_VISION_BUDGET[plan] ?? MONTHLY_VISION_BUDGET.volunteer;
   const used = await visionUsageThisMonth(db, orgId);
   return { used, limit, remaining: Math.max(0, limit - used), exhausted: used >= limit };
 }

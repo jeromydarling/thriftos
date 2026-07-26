@@ -9,6 +9,7 @@ export const STATIC_ROUTES = [
   { path: "/", priority: "1.0", changefreq: "weekly" },
   { path: "/nri", priority: "0.9", changefreq: "monthly" },
   { path: "/pricing", priority: "0.9", changefreq: "monthly" },
+  { path: "/compare", priority: "0.9", changefreq: "monthly" },
   { path: "/guides", priority: "0.8", changefreq: "weekly" },
   { path: "/signup", priority: "0.7", changefreq: "monthly" },
 ] as const;

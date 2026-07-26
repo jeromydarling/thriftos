@@ -16,7 +16,7 @@ import { suppress } from "../lib/email";
 import { toCsv } from "../lib/impact";
 import type { AppEnv } from "../lib/env";
 import { scoreSpam } from "../lib/spam";
-import type { PlanId } from "../lib/pricing";
+import { resolvePlanId } from "../lib/pricing";
 
 type Ctx = { Bindings: AppEnv };
 
@@ -112,7 +112,7 @@ api.post("/api/intake/photo", async (c) => {
   const extraction = await extractItemFromPhoto(c.env, {
     orgId: user.orgId,
     userId: user.id,
-    plan: (org?.plan ?? "stall") as PlanId,
+    plan: resolvePlanId(org?.plan ?? "volunteer"),
     image: bytes,
   });
 

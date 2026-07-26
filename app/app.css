@@ -11,6 +11,13 @@
   --color-line: #e5e1da;
 
   --font-display: Georgia, "Times New Roman", serif;
+
+  --animate-float: float 7s ease-in-out infinite;
+  --animate-pulse-soft: pulse-soft 2.4s ease-in-out infinite;
+  --animate-drift: drift 26s ease-in-out infinite alternate;
+  --animate-shimmer: shimmer 2.6s linear infinite;
+  --animate-rise: rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-ping-ring: ping-ring 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 
 html,
@@ -26,11 +33,191 @@ body {
   min-width: 3rem;
 }
 
+/* ─── Keyframes ─────────────────────────────────────────────────────────── */
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(4%, -3%, 0) scale(1.12);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ping-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  80%,
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+
+@keyframes marquee-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes caret-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes grow-bar {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* ─── Components ────────────────────────────────────────────────────────── */
+
+.marquee {
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee-scroll linear infinite;
+}
+
+.marquee-group {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.marquee:hover .marquee-track {
+  animation-play-state: paused;
+}
+
+.caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.1em;
+  background: currentColor;
+  animation: caret-blink 1.1s step-end infinite;
+}
+
+/* The soft moving wash behind the hero. */
+.aurora {
+  position: absolute;
+  inset: -30%;
+  background:
+    radial-gradient(40% 40% at 20% 30%, rgba(47, 111, 94, 0.22), transparent 70%),
+    radial-gradient(35% 35% at 75% 25%, rgba(228, 163, 60, 0.2), transparent 70%),
+    radial-gradient(45% 45% at 55% 80%, rgba(184, 84, 63, 0.14), transparent 70%);
+  filter: blur(30px);
+  animation: var(--animate-drift);
+  pointer-events: none;
+}
+
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--color-bark) 0%,
+    var(--color-moss) 45%,
+    var(--color-bark) 90%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: var(--animate-shimmer);
+}
+
+.bar-grow {
+  transform-origin: left;
+  animation: grow-bar 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Faint grid, so large empty areas still feel constructed. */
+.grid-lines {
+  background-image:
+    linear-gradient(to right, rgba(47, 42, 38, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(47, 42, 38, 0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+.browser-frame {
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ─── Reduced motion wins, always ───────────────────────────────────────── */
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .aurora,
+  .marquee-track,
+  .caret {
+    animation: none !important;
   }
 }

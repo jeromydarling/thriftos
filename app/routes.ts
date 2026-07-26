@@ -5,6 +5,7 @@ export default [
   index("routes/home.tsx"),
   route("nri", "routes/nri.tsx"),
   route("pricing", "routes/pricing.tsx"),
+  route("compare", "routes/compare.tsx"),
   route("guides", "routes/guides.tsx"),
   route("guides/:slug", "routes/guide.tsx"),
 

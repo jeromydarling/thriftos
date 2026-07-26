@@ -1,34 +1,51 @@
+import { Link } from "react-router";
 import type { Route } from "./+types/pricing";
 import { faqSchema, jsonLd, marketingMeta } from "../lib/seo";
-import { MarketingFooter, MarketingHeader, Section } from "../components/marketing";
+import { MarketingFooter, MarketingHeader } from "../components/marketing";
 import { LinkButton } from "../components/ui";
+import { Reveal } from "../components/motion";
+import { SavingsCalculator } from "../components/SavingsCalculator";
 import {
+  formatBps,
   formatCents,
+  formatDollars,
   PLANS,
-  PLATFORM_FEE_BPS,
-  stallBreakEvenSales,
-  usageCapCents,
+  READER_M2_CENTS,
+  STRIPE_CARD_PRESENT_BPS,
+  STRIPE_CARD_PRESENT_FIXED_CENTS,
 } from "../lib/pricing";
+import { planCrossoverVolumeCents } from "../lib/savings";
 
 const FAQ = [
   {
-    question: "What happens if we have a really busy month on the entry plan?",
+    question: "What exactly is the platform fee?",
     answer:
-      "It caps. The per-sale charge stops at whatever the Shop plan costs, so a busy month costs the same as simply being on Shop. A good month is never a penalty.",
+      "A percentage of card sales — 0.75% on Volunteer down to 0.25% on Enterprise — charged on top of Stripe's own processing rate. It is not a donation and we don't call it one. Cash sales carry no platform fee at all.",
   },
   {
-    question: "Is there a setup fee or a contract?",
-    answer: "No to both. Monthly, cancel whenever, and your data exports as CSV on the way out.",
+    question: "Does the fee apply to sales tax and round-up donations?",
+    answer:
+      "No. The fee is charged on merchandise after discounts. Sales tax is the state's money and a round-up is the customer's donation — charging a platform fee on either would be hard to explain to a shop, so we don't.",
   },
   {
-    question: "Who is the merchant of record for card payments?",
+    question: "Is there a setup fee, contract, or hardware lease?",
     answer:
-      "Your shop. Payments run through Stripe Connect under your account, so receipts carry your name and payouts land with you. We take a 1% platform fee, shown on the label every time.",
+      "None of the three. Monthly, cancel whenever, and your data exports as CSV on the way out. A card reader is $59 bought outright, or nothing if you use Tap to Pay on a phone you already own.",
   },
   {
-    question: "Do you charge for volunteers as seats?",
+    question: "Do you charge per volunteer?",
     answer:
-      "No. Volunteer logins are included on every plan — charging per volunteer would be a strange thing to do to a shop staffed by volunteers.",
+      "No. Volunteer logins are unlimited and free on every plan. Charging per seat in a shop staffed by volunteers would be a strange thing to do.",
+  },
+  {
+    question: "Could ThriftOS end up costing me more than what I have?",
+    answer:
+      "Yes, at high card volume. Our fee is a percentage while a competitor's software price is flat, so above roughly $25,000 a month against a keenly-priced alternative, they win on cost. The calculator on this page will tell you where that line falls for your shop.",
+  },
+  {
+    question: "Is there an annual discount?",
+    answer:
+      "Not yet. We'd rather publish no discount than invent one — when annual billing arrives, the rate will be stated here in plain numbers.",
   },
 ];
 
@@ -36,7 +53,7 @@ export function meta() {
   return marketingMeta({
     title: "Pricing",
     description:
-      "Start at 12¢ a sale with no monthly fee, capped at the flat plan's price. No setup fee, no contract, and volunteer logins are always free.",
+      "From $39/month with no contract and no hardware lease. Every fee on the label — including where a competitor would cost you less.",
     path: "/pricing",
   });
 }
@@ -44,14 +61,14 @@ export function meta() {
 export function loader() {
   return {
     plans: PLANS.map((p) => ({ ...p, features: [...p.features] })),
-    capCents: usageCapCents(),
-    breakEven: stallBreakEvenSales(),
-    platformFeePct: PLATFORM_FEE_BPS / 100,
+    crossoverCents: planCrossoverVolumeCents(),
+    readerPrice: READER_M2_CENTS,
+    stripeRate: `${(STRIPE_CARD_PRESENT_BPS / 100).toFixed(1)}% + ${STRIPE_CARD_PRESENT_FIXED_CENTS}¢`,
   };
 }
 
 export default function Pricing({ loaderData }: Route.ComponentProps) {
-  const { plans, capCents, breakEven, platformFeePct } = loaderData;
+  const { plans, crossoverCents, readerPrice, stripeRate } = loaderData;
 
   return (
     <>
@@ -60,86 +77,144 @@ export default function Pricing({ loaderData }: Route.ComponentProps) {
       <MarketingHeader />
 
       <main>
-        <Section>
-          <div className="max-w-2xl">
-            <h1 className="font-display text-4xl text-bark">What it costs</h1>
-            <p className="mt-4 text-lg leading-relaxed text-slate-soft">
-              Every fee is on this page. There is no "contact sales" tier and nothing that
-              appears later on an invoice.
-            </p>
-          </div>
+        <section className="relative overflow-hidden border-b border-line">
+          <div className="aurora opacity-60" aria-hidden="true" />
+          <div className="relative mx-auto max-w-6xl px-4 py-16 sm:py-20">
+            <Reveal>
+              <h1 className="font-display text-4xl text-bark sm:text-5xl">
+                Every fee on the label
+              </h1>
+              <p className="mt-4 max-w-2xl text-lg leading-relaxed text-slate-soft">
+                No "contact sales" tier, no setup fee, no hardware lease, and nothing that
+                turns up later on an invoice.
+              </p>
+            </Reveal>
 
-          <div className="mt-12 grid gap-6 lg:grid-cols-4">
-            {plans.map((plan) => (
-              <div
-                key={plan.id}
-                className={`rounded-2xl border p-6 ${
-                  plan.id === "shop" ? "border-moss bg-white" : "border-line bg-white"
-                }`}
-              >
-                <h2 className="font-display text-xl text-bark">{plan.name}</h2>
-                <p className="mt-3">
-                  {plan.monthlyCents > 0 ? (
-                    <>
-                      <span className="font-display text-3xl text-bark">
+            <div className="mt-12 grid gap-5 lg:grid-cols-4">
+              {plans.map((plan, i) => (
+                <Reveal key={plan.id} delay={i * 70}>
+                  <div
+                    className={`flex h-full flex-col rounded-2xl border bg-white p-6 transition hover:-translate-y-1 hover:shadow-lg ${
+                      plan.id === "core" ? "border-moss shadow-md" : "border-line"
+                    }`}
+                  >
+                    {plan.id === "core" ? (
+                      <span className="mb-3 w-fit rounded-full bg-moss/10 px-2.5 py-0.5 text-[11px] font-medium text-moss">
+                        Most shops
+                      </span>
+                    ) : null}
+
+                    <h2 className="font-display text-xl text-bark">{plan.name}</h2>
+
+                    <p className="mt-3">
+                      {plan.startingAt ? (
+                        <span className="text-xs text-slate-soft">from </span>
+                      ) : null}
+                      <span className="font-display text-4xl text-bark">
                         {formatCents(plan.monthlyCents)}
                       </span>
-                      <span className="text-sm text-slate-soft">/month</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="font-display text-3xl text-bark">{plan.perSaleCents}¢</span>
-                      <span className="text-sm text-slate-soft"> a sale</span>
-                    </>
-                  )}
+                      <span className="text-sm text-slate-soft">/mo</span>
+                    </p>
+
+                    <p className="mt-2 inline-flex w-fit items-center gap-1.5 rounded-full bg-linen px-2.5 py-1 text-xs text-bark">
+                      <span className="h-1.5 w-1.5 rounded-full bg-moss" />
+                      {formatBps(plan.platformFeeBps)} platform fee
+                    </p>
+
+                    <p className="mt-3 text-sm leading-relaxed text-slate-soft">{plan.blurb}</p>
+                    <p className="mt-2 text-xs text-slate-soft">{plan.bestFor}</p>
+
+                    <p className="mt-3 text-xs text-slate-soft">
+                      {plan.maxLocations === null
+                        ? "Locations: negotiated"
+                        : `${plan.maxLocations} location${plan.maxLocations > 1 ? "s" : ""}`}
+                    </p>
+
+                    <ul className="mt-5 flex-1 space-y-2 border-t border-line pt-4">
+                      {plan.features.map((feature) => (
+                        <li key={feature} className="flex gap-2 text-xs leading-relaxed text-slate-soft">
+                          <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-moss" />
+                          {feature}
+                        </li>
+                      ))}
+                    </ul>
+
+                    <div className="mt-5">
+                      <LinkButton
+                        to={plan.id === "enterprise" ? "/compare" : "/signup"}
+                        variant={plan.id === "core" ? "primary" : "secondary"}
+                        className="w-full"
+                      >
+                        {plan.id === "enterprise" ? "Talk to us" : "Start here"}
+                      </LinkButton>
+                    </div>
+                  </div>
+                </Reveal>
+              ))}
+            </div>
+
+            <Reveal delay={200}>
+              <p className="mt-6 rounded-xl border border-line bg-white px-5 py-4 text-sm leading-relaxed text-slate-soft">
+                <strong className="text-bark">A note on picking a tier:</strong> Core costs $60
+                more a month than Volunteer but charges 0.25% less on card sales. Past about{" "}
+                <strong className="text-bark">{formatDollars(crossoverCents)}</strong> a month in
+                card volume, Core is genuinely the cheaper plan. The calculator below works this
+                out for you, and it will recommend Volunteer if that's the right answer.
+              </p>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* ── Calculator ───────────────────────────────────────────────── */}
+        <section className="mx-auto max-w-6xl px-4 py-16">
+          <Reveal>
+            <h2 className="font-display text-3xl text-bark">Work out your real bill</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-soft">
+              Subscription plus processing plus our fee, against what you're paying now.
+            </p>
+          </Reveal>
+          <Reveal delay={100}>
+            <div className="mt-8">
+              <SavingsCalculator />
+            </div>
+          </Reveal>
+        </section>
+
+        {/* ── Payments ─────────────────────────────────────────────────── */}
+        <section className="border-y border-line bg-white py-16">
+          <div className="mx-auto max-w-3xl px-4">
+            <Reveal>
+              <h2 className="font-display text-3xl text-bark">How card payments work</h2>
+              <div className="mt-6 space-y-4 leading-relaxed text-slate-soft">
+                <p>
+                  Payments run through Stripe Connect with{" "}
+                  <strong className="text-bark">your shop as the merchant of record</strong>.
+                  Receipts carry your name, payouts land in your account, and you keep your own
+                  Stripe dashboard.
                 </p>
-                <p className="mt-2 text-sm leading-relaxed text-slate-soft">{plan.blurb}</p>
-                <p className="mt-3 text-xs text-slate-soft">{plan.bestFor}</p>
-                <ul className="mt-5 space-y-2 border-t border-line pt-4">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="text-xs leading-relaxed text-slate-soft">
-                      · {feature}
-                    </li>
-                  ))}
-                </ul>
+                <p>
+                  Stripe charges its published card-present rate of{" "}
+                  <strong className="text-bark">{stripeRate}</strong>. ThriftOS adds the
+                  platform fee shown on your plan. Both appear on every transaction record —
+                  there is no bundled "effective rate" hiding one inside the other.
+                </p>
+                <p>
+                  <strong className="text-bark">Cash sales cost nothing extra.</strong> No
+                  processing, no platform fee. Only the subscription applies.
+                </p>
+                <p>
+                  Hardware is a <strong className="text-bark">{formatCents(readerPrice)}</strong>{" "}
+                  Stripe Reader M2 you own, or Tap to Pay on a phone you already have. If you
+                  leave, there's nothing to return and no buyout to negotiate.
+                </p>
               </div>
-            ))}
+            </Reveal>
           </div>
+        </section>
 
-          <div className="mt-8 rounded-2xl border border-moss/30 bg-moss/5 p-6">
-            <h2 className="font-display text-lg text-bark">
-              The entry plan can't cost more than the next one
-            </h2>
-            <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-soft">
-              Stall bills {plans[0].perSaleCents}¢ a sale and stops at {formatCents(capCents)} —
-              exactly what Shop costs. You reach that at about {breakEven} sales in a month,
-              and past that point you pay nothing further. We'd rather you found out from this
-              page than from a bill.
-            </p>
-          </div>
-        </Section>
-
-        <Section tinted>
-          <div className="max-w-2xl">
-            <h2 className="font-display text-3xl text-bark">Card payments</h2>
-            <p className="mt-4 leading-relaxed text-slate-soft">
-              Payments run through Stripe Connect with your shop as the merchant of record.
-              Receipts carry your name, payouts go to your account, and we take a{" "}
-              {platformFeePct}% platform fee on top of Stripe's own published rate.
-            </p>
-            <p className="mt-4 leading-relaxed text-slate-soft">
-              At checkout, shoppers paying by card can choose to cover the processing fees so
-              the full amount reaches you. It's on by default and clearly labelled — most
-              people say yes when asked plainly, and nobody is tricked into it.
-            </p>
-            <p className="mt-4 leading-relaxed text-slate-soft">
-              Cash sales cost you nothing beyond your plan, because no card ever touched them.
-            </p>
-          </div>
-        </Section>
-
-        <Section>
-          <div className="max-w-2xl">
+        {/* ── FAQ ──────────────────────────────────────────────────────── */}
+        <section className="mx-auto max-w-3xl px-4 py-16">
+          <Reveal>
             <h2 className="font-display text-3xl text-bark">Questions</h2>
             <dl className="mt-8 space-y-6">
               {FAQ.map((item) => (
@@ -152,12 +227,20 @@ export default function Pricing({ loaderData }: Route.ComponentProps) {
 
             <div className="mt-10 flex flex-wrap gap-3">
               <LinkButton to="/demo">Look around first</LinkButton>
-              <LinkButton to="/signup" variant="secondary">
-                Set up your shop
+              <LinkButton to="/compare" variant="secondary">
+                Compare with the alternatives
               </LinkButton>
             </div>
-          </div>
-        </Section>
+
+            <p className="mt-6 text-sm text-slate-soft">
+              Still deciding?{" "}
+              <Link to="/nri" className="text-moss underline underline-offset-2">
+                Read how NRI works
+              </Link>{" "}
+              — it's the part that's hardest to copy.
+            </p>
+          </Reveal>
+        </section>
       </main>
 
       <MarketingFooter />

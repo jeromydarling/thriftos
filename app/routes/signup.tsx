@@ -63,7 +63,7 @@ export async function action({ request, context }: Route.ActionArgs) {
 
   await batch(env.DB, [
     env.DB.prepare(
-      `INSERT INTO orgs (id, slug, name, email, plan) VALUES (?, ?, ?, ?, 'stall')`
+      `INSERT INTO orgs (id, slug, name, email, plan) VALUES (?, ?, ?, ?, 'volunteer')`
     ).bind(orgId, slug, shopName, email),
     env.DB.prepare(
       `INSERT INTO locations (id, org_id, name, kind, is_default) VALUES (?, ?, 'Sales floor', 'salesfloor', 1)`

@@ -440,12 +440,14 @@ export const GUIDES: readonly Guide[] = [
           "Donation, volunteer, and donor records are the core of the data model rather than modules bolted onto a retail system. In practice that means the same person can be a donor, a volunteer, and a shopper without being three records.",
           "Impact reporting — diversion weight, value delivered, volunteer hours — is derived from the records that run the register, so it isn't assembled from scratch before a board meeting.",
           "Local autonomy is architectural. Stores in a federation share only what they explicitly turn on, per resource type, and can revoke it without leaving.",
+          "No hardware lease. A card reader costs $59 outright, or nothing if you tap on a phone you already own — against 48-month terminal leases of $190–$254 a month elsewhere.",
         ],
       },
       {
         heading: "Where we're weaker",
         paragraphs: [
           "We're newer, so there is less accumulated support knowledge and fewer third-party integrations. Our e-commerce is basic next to a mature storefront product. We don't have hardware partnerships or an installer network.",
+          "And we charge a platform fee on card volume where competitors bundle processing. At high volume that arithmetic goes against us: past about $25,000 a month against a keenly-priced flat-fee system, they are simply cheaper. We publish the crossover rather than hide it.",
           "If any of that is load-bearing for you, buy the thing that has it.",
         ],
       },
@@ -459,7 +461,7 @@ export const GUIDES: readonly Guide[] = [
       {
         question: "What if we outgrow the entry plan?",
         answer:
-          "The entry plan is per-sale and caps at the flat plan's price, so a busy month simply costs what the next tier costs. There's no cliff to fall off.",
+          "Plans move up as locations and volume grow, and each tier charges a lower platform fee than the one below it. Above roughly $25,000 a month in card volume our percentage fee can make a flat-priced competitor cheaper — the calculator on our comparison page shows exactly where that line falls.",
       },
     ],
     related: ["thrift-store-inventory-basics", "color-tag-markdown-system"],

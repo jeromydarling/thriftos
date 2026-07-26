@@ -5,7 +5,8 @@ import { all, first, parseSettings, run } from "../lib/db";
 import { envFrom, integrationStatus } from "../lib/env";
 import { TAG_COLOR_HEX } from "../lib/markdown";
 import { TRUST_BOUNDARIES } from "../lib/nri/voice";
-import { getPlan, PLANS, stallBreakEvenSales, usageCapCents } from "../lib/pricing";
+import { formatBps, getPlan, PLANS } from "../lib/pricing";
+import { planCrossoverVolumeCents } from "../lib/savings";
 import { Badge, Button, Card, Field, Input, Notice, money } from "../components/ui";
 
 export function meta() {
@@ -144,7 +145,7 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
   const navigation = useNavigation();
   const busy = navigation.state === "submitting";
   const canEdit = role === "owner" || role === "admin";
-  const plan = getPlan((org?.plan ?? "stall") as never);
+  const plan = getPlan(org?.plan ?? "volunteer");
 
   return (
     <div className="space-y-6">
@@ -305,17 +306,19 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
         <h2 className="font-display text-lg text-bark">Your plan</h2>
         <div className="mt-3 flex flex-wrap items-baseline gap-3">
           <span className="font-display text-2xl text-bark">{plan.name}</span>
-          <span className="text-sm text-slate-soft">
-            {plan.monthlyCents > 0
-              ? `${money(plan.monthlyCents)}/month`
-              : `${plan.perSaleCents}¢ a sale`}
+          <span className="text-sm text-slate-soft">{money(plan.monthlyCents)}/month</span>
+          <span className="rounded-full bg-linen px-2.5 py-1 text-xs text-bark">
+            {formatBps(plan.platformFeeBps)} platform fee on card sales
           </span>
         </div>
-        {plan.id === "stall" ? (
+        <p className="mt-2 text-sm leading-relaxed text-slate-soft">
+          {salesThisMonth} card {salesThisMonth === 1 ? "sale" : "sales"} this month. Cash sales
+          carry no processing or platform fee at all — only the subscription applies.
+        </p>
+        {plan.id === "volunteer" ? (
           <p className="mt-2 text-sm leading-relaxed text-slate-soft">
-            {salesThisMonth} sales this month — {money(Math.min(salesThisMonth * plan.perSaleCents, usageCapCents()))} so far.
-            It stops at {money(usageCapCents())} however busy you get, which happens around{" "}
-            {stallBreakEvenSales()} sales. A good month is never a penalty.
+            Past about {money(planCrossoverVolumeCents())} a month in card volume, Core costs
+            less overall despite the higher subscription — its platform fee is 0.25% lower.
           </p>
         ) : null}
         <p className="mt-2 text-xs text-slate-soft">

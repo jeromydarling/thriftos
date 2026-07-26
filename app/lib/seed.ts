@@ -108,7 +108,7 @@ export async function seedDemoOrg(db: D1Database): Promise<SeedResult> {
       db,
       `INSERT INTO orgs (id, slug, name, legal_name, ein, street, city, state, postal_code,
                          phone, email, is_nonprofit, plan, is_demo, brand_primary, brand_accent)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'shop', 1, '#2F6F5E', '#E4A33C')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'core', 1, '#2F6F5E', '#E4A33C')`,
       orgId,
       DEMO_SLUG,
       "Second Chances Thrift",
