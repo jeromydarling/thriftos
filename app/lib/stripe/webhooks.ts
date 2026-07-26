@@ -30,6 +30,7 @@ import { applyInventoryEffect } from "../payments";
 import { record, saleEntries } from "../ledger";
 import { recordFeeAccrual, resolveFeePolicy } from "../fees";
 import { settleRefund, upsertDispute } from "../refunds";
+import { raise, resolve } from "../alerts";
 import { stateForIntent, type StripePaymentIntent } from "./terminal";
 import {
   deriveStatus,
@@ -156,6 +157,22 @@ export async function handleWebhook(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await markEvent(db, event.id, "failed", message);
+
+    // Raised here, not left for the nightly sweep. A payment that failed to
+    // record at 2pm should be visible at 2pm, not tomorrow morning.
+    await raise(db, {
+      orgId: null,
+      kind: "webhook_failed",
+      severity: "critical",
+      title: `A Stripe ${event.type.replace(/[._]/g, " ")} event failed to process`,
+      body: `${message}. A payment, refund, or dispute may not have been recorded. Fix the handler, then replay the event — nothing is lost, but nothing is right until it runs.`,
+      href: "/app/money",
+      dedupeKey: event.id,
+      metadata: { eventType: event.type, objectId: (event.data?.object?.id as string) ?? null },
+    }).catch(() => {
+      // An alert that can't be written must not swallow the original failure.
+    });
+
     // Still 200. The event is on disk and replayable; letting Stripe retry a
     // deterministic bug forever just buries the real failure in noise.
     return {
@@ -631,6 +648,17 @@ async function handlePayoutFailed(
     })
   );
 
+  await raise(db, {
+    orgId: acct.org_id,
+    kind: "payout_failed",
+    severity: "critical",
+    title: "A payout to your bank failed",
+    body: `Stripe couldn't send ${(((payout.amount as number) ?? 0) / 100).toFixed(2)} to your account${payout.failure_message ? `: ${payout.failure_message}` : ""}. The money is safe — it's waiting at Stripe until the bank details are right.`,
+    href: "/app/settings#payments",
+    dedupeKey: (payout.id as string) ?? `${acct.org_id}:payout`,
+    metadata: { amount: payout.amount ?? 0, code: payout.failure_code ?? null },
+  });
+
   return "payout failure recorded";
 }
 
@@ -686,6 +714,8 @@ export async function replayEvent(
   try {
     const detail = await dispatch(db, fresh, config);
     await markEvent(db, eventId, "processed");
+    // The problem is gone, so the alert about it should be too.
+    await resolve(db, "webhook_failed", eventId);
     return { outcome: "processed", eventId, eventType: fresh.type, detail };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

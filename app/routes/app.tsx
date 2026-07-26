@@ -3,6 +3,7 @@ import type { Route } from "./+types/app";
 import { requireUser } from "../lib/auth";
 import { envFrom } from "../lib/env";
 import { sampleBatchId } from "../lib/onboarding";
+import { openAlerts } from "../lib/alerts";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = envFrom(context);
@@ -12,10 +13,18 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   // thing that must never happen is somebody reading a number off a screen
   // without knowing that. A banner that's only on the dashboard isn't a
   // guarantee; this one is.
-  const hasSampleData = (await sampleBatchId(env.DB, user.orgId)) !== null;
+  const [hasSampleData, alerts] = await Promise.all([
+    sampleBatchId(env.DB, user.orgId).then((id) => id !== null),
+    openAlerts(env.DB, user.orgId, 5),
+  ]);
+
+  // Only the critical ones interrupt. A warning belongs on the dashboard, not
+  // across the top of the register while somebody is serving a customer.
+  const critical = alerts.filter((a) => a.severity === "critical" && !a.acknowledged_at);
 
   return {
     hasSampleData,
+    critical,
     user: {
       name: user.name,
       role: user.role,
@@ -41,10 +50,25 @@ const NAV = [
 ];
 
 export default function AppLayout({ loaderData }: Route.ComponentProps) {
-  const { user, hasSampleData } = loaderData;
+  const { user, hasSampleData, critical } = loaderData;
 
   return (
     <div className="min-h-screen bg-linen">
+      {critical.length > 0 ? (
+        <div className="bg-clay/15 px-4 py-2 text-center text-sm text-bark">
+          <strong>{critical[0].title}.</strong> {critical[0].body}{" "}
+          <Link
+            to={critical[0].href ?? "/app"}
+            className="font-medium text-moss underline underline-offset-2"
+          >
+            Sort it out
+          </Link>
+          {critical.length > 1 ? (
+            <span className="text-slate-soft"> · and {critical.length - 1} more</span>
+          ) : null}
+        </div>
+      ) : null}
+
       {hasSampleData ? (
         <div className="bg-clay/15 px-4 py-2 text-center text-sm text-bark">
           Sample data is loaded, so some of what you see is invented. It's kept out of your

@@ -42,6 +42,7 @@ export const ID_PREFIX = {
   terminalReader: "tr",
   refund: "rf",
   dispute: "dp",
+  alert: "ax",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIX;

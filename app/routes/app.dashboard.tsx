@@ -7,7 +7,8 @@ import { Compass, CompassAside } from "../components/Compass";
 import { LinkButton, Stat, money } from "../components/ui";
 import { DIVERTED_STATUS_SQL, lbsToTons, realOnly } from "../lib/impact";
 import { getOnboardingState } from "../lib/onboarding";
-import { Link } from "react-router";
+import { acknowledge, openAlerts } from "../lib/alerts";
+import { Form, Link } from "react-router";
 
 export function meta() {
   return [{ title: "Today | ThriftOS" }];
@@ -66,10 +67,15 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 
   const signals = await openSignals(env.DB, user.orgId);
   const onboarding = await getOnboardingState(env.DB, user.orgId);
+  const alerts = await openAlerts(env.DB, user.orgId, 10);
 
   return {
     firstName: user.name.split(" ")[0],
     signals,
+    // Kept separate from NRI signals on purpose. The Compass notices things
+    // worth thinking about; these are things that are broken. Mixing them
+    // would teach people to skim both.
+    alerts,
     // Shown until it's finished or the shop hides it. A checklist that keeps
     // congratulating a shop that's been trading for a year is noise.
     onboarding:
@@ -99,12 +105,25 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   };
 }
 
+export async function action({ request, context }: Route.ActionArgs) {
+  const env = envFrom(context);
+  const user = await requireUser(request, env.DB);
+  const form = await request.formData();
+
+  if (String(form.get("intent")) === "ack") {
+    await acknowledge(env.DB, user.orgId, String(form.get("alertId") ?? ""), user.id);
+  }
+  return { ok: true };
+}
+
 export default function Dashboard({ loaderData }: Route.ComponentProps) {
-  const { firstName, signals, stats, onboarding } = loaderData;
+  const { firstName, signals, stats, onboarding, alerts } = loaderData;
   const tons = lbsToTons(stats.diversionLbs);
 
   return (
     <div className="space-y-8">
+      {alerts.length > 0 ? <Alerts alerts={alerts} /> : null}
+
       {onboarding ? <SetupPrompt onboarding={onboarding} /> : null}
 
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -157,6 +176,70 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
         <CompassAside />
       </div>
     </div>
+  );
+}
+
+/**
+ * Things that are broken.
+ *
+ * Deliberately plain and slightly ugly. These aren't suggestions — each one is
+ * something a person has to do, and dressing them up as gentle prompts would
+ * be the wrong register entirely.
+ */
+function Alerts({
+  alerts,
+}: {
+  alerts: {
+    id: string;
+    severity: string;
+    title: string;
+    body: string;
+    href: string | null;
+    acknowledged_at: string | null;
+  }[];
+}) {
+  return (
+    <section className="space-y-2">
+      {alerts.map((alert) => (
+        <div
+          key={alert.id}
+          className={`rounded-xl border p-4 ${
+            alert.severity === "critical"
+              ? "border-clay/40 bg-clay/5"
+              : "border-line bg-white"
+          }`}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-medium text-bark">{alert.title}</p>
+              <p className="mt-1 text-sm leading-relaxed text-slate-soft">{alert.body}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              {alert.href ? (
+                <Link
+                  to={alert.href}
+                  className="rounded-lg bg-moss px-3 py-1.5 text-sm font-medium text-white hover:bg-moss-deep"
+                >
+                  Look at it
+                </Link>
+              ) : null}
+              {!alert.acknowledged_at ? (
+                <Form method="post">
+                  <input type="hidden" name="intent" value="ack" />
+                  <input type="hidden" name="alertId" value={alert.id} />
+                  <button
+                    type="submit"
+                    className="text-sm text-slate-soft underline underline-offset-2 hover:text-bark"
+                  >
+                    Seen it
+                  </button>
+                </Form>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }
 

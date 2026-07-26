@@ -16,6 +16,7 @@ import type { AppEnv } from "../lib/env";
 import { advanceAttempt, staleAttempts } from "../lib/attempts";
 import { applyInventoryEffect, type PaymentState } from "../lib/payments";
 import { getPaymentIntent, stateForIntent } from "../lib/stripe/terminal";
+import { sweepAlerts } from "../lib/alerts";
 
 async function record(
   db: D1Database,
@@ -130,6 +131,10 @@ export async function runDaily(env: AppEnv): Promise<void> {
 
     return { swept: stale.length, released, recovered };
   });
+
+  // Anything that needs a person. Runs last, so it sees the state the other
+  // jobs left behind rather than the state they started from.
+  await record(db, "alert_sweep", async () => sweepAlerts(db));
 
   // The demo must never be found empty by a visitor.
   await record(db, "demo_selfheal", async () => {
