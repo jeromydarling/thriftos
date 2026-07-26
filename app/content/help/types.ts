@@ -16,6 +16,7 @@ export type HelpCategoryId =
   | "intake"
   | "inventory"
   | "register"
+  | "selling-online"
   | "donations"
   | "people"
   | "volunteers"
@@ -63,6 +64,13 @@ export const HELP_CATEGORIES: readonly HelpCategory[] = [
     title: "The register",
     blurb: "Ringing up, round-ups, tax, offline selling, voids and refunds.",
     glyph: "▦",
+  },
+  {
+    id: "selling-online",
+    title: "Selling online",
+    blurb:
+      "Turning it on, postage and collection, picking and posting orders, product photographs, and getting your stock found.",
+    glyph: "▧",
   },
   {
     id: "donations",

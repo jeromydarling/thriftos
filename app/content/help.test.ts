@@ -53,6 +53,8 @@ describe("help registry integrity", () => {
       "/app/import",
       "/app/intake",
       "/app/inventory",
+      "/app/photos",
+      "/app/orders",
       "/app/register",
       "/app/people",
       "/app/donations",
@@ -102,6 +104,8 @@ describe("help registry integrity", () => {
     expect(articlesIn("migrating").length).toBeGreaterThanOrEqual(1);
     // A shop building its brand and its website should not have to guess.
     expect(articlesIn("brand").length).toBeGreaterThanOrEqual(3);
+    // Turning on online selling opens five new screens at once. Each earns a page.
+    expect(articlesIn("selling-online").length).toBeGreaterThanOrEqual(5);
   });
 
   it("lists no empty category on the index", () => {

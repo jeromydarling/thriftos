@@ -10,6 +10,7 @@ import { PAYMENTS_ARTICLES } from "./payments";
 import { OPERATIONS_ARTICLES } from "./operations";
 import { PEOPLE_ARTICLES } from "./people-and-reporting";
 import { BRAND_ARTICLES } from "./brand-and-website";
+import { ONLINE_ARTICLES } from "./selling-online";
 
 export * from "./types";
 
@@ -19,6 +20,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
   ...OPERATIONS_ARTICLES,
   ...PEOPLE_ARTICLES,
   ...BRAND_ARTICLES,
+  ...ONLINE_ARTICLES,
 ] as const;
 
 export function getArticle(slug: string): HelpArticle | undefined {
