@@ -261,8 +261,15 @@ export const DEMO_PHOTOS: readonly DemoPhoto[] = [
 /**
  * The pair the help centre shows.
  *
- * One item, chosen because the fault is obvious in the "before" and the fix is
- * obvious in the "after" — a dark garment on a busy rug, which is the case a
- * shop is most sceptical about.
+ * Chosen by looking at all twelve run through the real cleanup, not by
+ * guessing. The coat wins on both halves: the snapshot is unmistakably
+ * somebody's floor — laundry basket, table legs, hard shadow — and the cut-out
+ * comes back whole, with the scuffed cuff and the marks down the front still
+ * there. That last part is the argument. A pairing where the item came back
+ * looking better than it went in would undo everything this page says.
+ *
+ * The jumper on the rug was the first choice and lost: the cut-out takes a
+ * sliver of cushion with it. That is honest — it is why a person reviews every
+ * one — but it is not the picture to lead with.
  */
-export const DEMO_BEFORE_AFTER = "cable-knit";
+export const DEMO_BEFORE_AFTER = "peacoat";
