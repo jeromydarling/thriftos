@@ -670,7 +670,11 @@ async function handlePayoutFailed(
 
   await run(
     db,
-    `INSERT INTO audit_log (id, org_id, action, entity_type, entity_id, detail_json)
+    // `entity` and `meta_json` — the column names audit_log has actually had
+    // since 0001. This said entity_type and detail_json, so every failed-payout
+    // event threw on the insert instead of recording the thing a shop most
+    // needs to know about: that money didn't reach their bank.
+    `INSERT INTO audit_log (id, org_id, action, entity, entity_id, meta_json)
      VALUES (?, ?, 'payout.failed', 'payout', ?, ?)`,
     `au_${(payout.id as string).slice(0, 20)}`,
     acct.org_id,

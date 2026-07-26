@@ -2,6 +2,8 @@ import { Form, Link, redirect, useNavigation } from "react-router";
 import type { Route } from "./+types/app.settings";
 import { requireRole, requireUser } from "../lib/auth";
 import { all, first, run } from "../lib/db";
+import { newId } from "../lib/ids";
+import { SUGGESTED_BANDS, bandsFor } from "../lib/shipping";
 import { DEFAULT_SETTINGS, parseOrgSettings, serialiseOrgSettings } from "../lib/settings";
 import { envFrom, integrationStatus } from "../lib/env";
 import { TAG_COLOR_HEX } from "../lib/markdown";
@@ -65,6 +67,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   ]);
 
   const settings = parseOrgSettings(org?.settings_json);
+  const bands = await bandsFor(env.DB, user.orgId);
 
   // Rendered server-side so the panel is truthful on first paint rather than
   // flashing "not connected" while a fetch resolves.
@@ -96,6 +99,8 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     org,
     rules,
     settings,
+    bands: bands.length > 0 ? bands : SUGGESTED_BANDS.map((b, i) => ({ ...b, id: `suggested-${i}` })),
+    hasBands: bands.length > 0,
     integrations: integrationStatus(env),
     role: user.role,
     salesThisMonth: Number(salesThisMonth?.n ?? 0),
@@ -127,6 +132,58 @@ export async function action({ request, context }: Route.ActionArgs) {
       user.orgId
     );
     return redirect("/app/settings?saved=org");
+  }
+
+  if (intent === "online") {
+    const existing = parseOrgSettings(
+      (await first<{ settings_json: string }>(
+        env.DB,
+        `SELECT settings_json FROM orgs WHERE id = ?`,
+        user.orgId
+      ))?.settings_json
+    );
+
+    await run(
+      env.DB,
+      `UPDATE orgs SET settings_json = ?, updated_at = datetime('now') WHERE id = ?`,
+      serialiseOrgSettings({
+        ...existing,
+        onlineSelling: form.get("onlineSelling") === "on",
+        pickupEnabled: form.get("pickupEnabled") === "on",
+        pickupInstructions: String(form.get("pickupInstructions") ?? ""),
+      }),
+      user.orgId
+    );
+    return redirect("/app/settings?saved=online");
+  }
+
+  if (intent === "bands") {
+    // Rewritten wholesale rather than diffed. Postage bands are a short list a
+    // shop edits as a set, and a partial update is how one ends up with an old
+    // band nobody meant to keep.
+    const labels = form.getAll("bandLabel").map(String);
+    const grams = form.getAll("bandGrams").map((g) => Math.round(Number(g)));
+    const prices = form.getAll("bandPrice").map((p) => Math.round(Number(p) * 100));
+
+    const bands = labels
+      .map((label, i) => ({ label: label.trim(), grams: grams[i], price: prices[i] }))
+      .filter((b) => b.label && Number.isFinite(b.grams) && b.grams > 0 && Number.isFinite(b.price) && b.price >= 0);
+
+    await run(env.DB, `DELETE FROM shipping_bands WHERE org_id = ?`, user.orgId);
+    for (const [i, band] of bands.entries()) {
+      await run(
+        env.DB,
+        `INSERT INTO shipping_bands (id, org_id, label, max_grams, price_cents, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        newId("shippingBand"),
+        user.orgId,
+        band.label,
+        band.grams,
+        band.price,
+        i
+      );
+    }
+    return redirect("/app/settings?saved=bands");
   }
 
   if (intent === "website") {
@@ -208,7 +265,7 @@ export async function action({ request, context }: Route.ActionArgs) {
 }
 
 export default function Settings({ loaderData }: Route.ComponentProps) {
-  const { org, rules, settings, integrations, role, salesThisMonth, aiUsed, connect, testMode } =
+  const { org, rules, settings, bands, hasBands, integrations, role, salesThisMonth, aiUsed, connect, testMode } =
     loaderData;
   const navigation = useNavigation();
   const busy = navigation.state === "submitting";
@@ -268,6 +325,117 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
                 Save shop details
               </Button>
             </div>
+          ) : null}
+        </Form>
+      </Card>
+
+      <Card>
+        <h2 className="font-display text-lg text-bark">Selling online</h2>
+        <p className="mt-2 text-sm leading-relaxed text-slate-soft">
+          Off until you turn it on. Everything on your website stays visible either way — this
+          decides whether there's a buy button. You'll also need Stripe connected below; without
+          it the button stays hidden rather than leading somewhere that can't take money.
+        </p>
+        <Form method="post" className="mt-4 space-y-4">
+          <input type="hidden" name="intent" value="online" />
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              name="onlineSelling"
+              defaultChecked={settings.onlineSelling}
+              disabled={!canEdit}
+              className="mt-1 h-4 w-4"
+            />
+            <span className="text-sm text-bark">
+              Sell online
+              <span className="block text-xs text-slate-soft">
+                Shoppers can buy from your own pages. Stock is the same stock — anything sold at
+                the counter disappears from the website on its own.
+              </span>
+            </span>
+          </label>
+
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              name="pickupEnabled"
+              defaultChecked={settings.pickupEnabled}
+              disabled={!canEdit}
+              className="mt-1 h-4 w-4"
+            />
+            <span className="text-sm text-bark">
+              Let people pay online and collect in the shop
+              <span className="block text-xs text-slate-soft">
+                No packing, no postage, nothing to go astray in the post. They get a short code to
+                quote at the counter.
+              </span>
+            </span>
+          </label>
+
+          <Field
+            label="What to tell someone collecting"
+            name="pickupInstructions"
+            hint="Where to come and when. Shown after they pay and on their receipt."
+          >
+            <Textarea
+              id="pickupInstructions"
+              name="pickupInstructions"
+              rows={3}
+              defaultValue={settings.pickupInstructions}
+              placeholder={"Ask at the counter — we're open Tuesday to Saturday.\nPlease come within two weeks."}
+              disabled={!canEdit}
+            />
+          </Field>
+
+          {canEdit ? <Button type="submit" disabled={busy}>Save</Button> : null}
+        </Form>
+      </Card>
+
+      <Card>
+        <h2 className="font-display text-lg text-bark">Postage</h2>
+        <p className="mt-2 text-sm leading-relaxed text-slate-soft">
+          Priced by weight — the same weight you record at intake for your diversion figures, so
+          there's nothing extra to type. An order goes in the cheapest band it fits.
+          {hasBands ? null : " These are a starting point; edit them to what you actually pay."}
+        </p>
+        <Form method="post" className="mt-4 space-y-3">
+          <input type="hidden" name="intent" value="bands" />
+          {bands.map((band, i) => (
+            <div key={band.id ?? i} className="grid gap-2 sm:grid-cols-[1fr_7rem_7rem]">
+              <Input
+                name="bandLabel"
+                defaultValue={band.label}
+                aria-label="What this band is"
+                disabled={!canEdit}
+              />
+              <Input
+                name="bandGrams"
+                type="number"
+                min="1"
+                defaultValue={band.max_grams}
+                aria-label="Up to this many grams"
+                disabled={!canEdit}
+              />
+              <Input
+                name="bandPrice"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={(band.price_cents / 100).toFixed(2)}
+                aria-label="Price"
+                disabled={!canEdit}
+              />
+            </div>
+          ))}
+          <p className="text-xs text-slate-soft">
+            Label · up to how many grams · what you charge. Clear a label to drop that band. An
+            order heavier than every band can't be posted — the shopper is told, and offered
+            collection instead.
+          </p>
+          {canEdit ? (
+            <Button type="submit" disabled={busy}>
+              {hasBands ? "Save postage" : "Use these"}
+            </Button>
           ) : null}
         </Form>
       </Card>
