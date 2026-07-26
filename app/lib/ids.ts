@@ -44,6 +44,8 @@ export const ID_PREFIX = {
   dispute: "dp",
   alert: "ax",
   sitePage: "sp",
+  cart: "ct",
+  shippingBand: "sb",
   customDomain: "cd",
   brandAsset: "ba",
 } as const;
