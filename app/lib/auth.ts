@@ -9,7 +9,22 @@
 import { first, run } from "./db";
 import { newId, newToken } from "./ids";
 
-const PBKDF2_ITERATIONS = 210_000;
+/**
+ * The most PBKDF2 iterations Workers' WebCrypto will perform.
+ *
+ * This is a hard platform ceiling, not a tuning choice:
+ *
+ *   Pbkdf2 failed: iteration counts above 100000 are not supported
+ *
+ * It is enforced only on Workers. Node — which is what the local dev server
+ * and the tests run on — happily does any number, so a value above this
+ * passes every check on a laptop and then makes signup, login, password
+ * reset, and the demo shop all throw in production. It did exactly that.
+ * app/lib/auth.test.ts fails the build if this is raised again.
+ */
+export const PBKDF2_MAX_ITERATIONS = 100_000;
+
+const PBKDF2_ITERATIONS = PBKDF2_MAX_ITERATIONS;
 const SESSION_DAYS = 30;
 export const SESSION_COOKIE = "tos_session";
 
@@ -41,11 +56,19 @@ export interface SessionUser {
 
 /* ─── Password hashing ──────────────────────────────────────────────────── */
 
-export async function hashPassword(
-  password: string,
-  saltHex?: string
-): Promise<{ hash: string; salt: string }> {
-  const salt = saltHex ?? newToken(16);
+/** The scheme tag stored alongside every hash. */
+const SCHEME = "pbkdf2-sha256";
+
+/**
+ * What an unlabelled hash was made with.
+ *
+ * Hashes written before the stored format carried its own parameters. Kept so
+ * those accounts can still sign in wherever the platform can compute them,
+ * which is the whole reason the parameters are stored now.
+ */
+const LEGACY_ITERATIONS = 210_000;
+
+async function derive(password: string, saltHex: string, iterations: number): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(password),
@@ -54,16 +77,37 @@ export async function hashPassword(
     ["deriveBits"]
   );
   const bits = await crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      salt: hexToBytes(salt),
-      iterations: PBKDF2_ITERATIONS,
-      hash: "SHA-256",
-    },
+    { name: "PBKDF2", salt: hexToBytes(saltHex), iterations, hash: "SHA-256" },
     key,
     256
   );
-  return { hash: bytesToHex(new Uint8Array(bits)), salt };
+  return bytesToHex(new Uint8Array(bits));
+}
+
+/**
+ * Hash a password, storing the parameters with it.
+ *
+ * `pbkdf2-sha256$100000$<hex>` rather than a bare digest, so the iteration
+ * count can ever be changed again without every existing account being locked
+ * out — the verifier reads what a hash was made with instead of assuming.
+ */
+export async function hashPassword(
+  password: string,
+  saltHex?: string
+): Promise<{ hash: string; salt: string }> {
+  const salt = saltHex ?? newToken(16);
+  const digest = await derive(password, salt, PBKDF2_ITERATIONS);
+  return { hash: `${SCHEME}$${PBKDF2_ITERATIONS}$${digest}`, salt };
+}
+
+function storedParams(stored: string): { iterations: number; digest: string } | null {
+  if (!stored.startsWith(`${SCHEME}$`)) {
+    return { iterations: LEGACY_ITERATIONS, digest: stored };
+  }
+  const [, rawIterations, digest] = stored.split("$");
+  const iterations = Number(rawIterations);
+  if (!Number.isInteger(iterations) || iterations <= 0 || !digest) return null;
+  return { iterations, digest };
 }
 
 export async function verifyPassword(
@@ -71,8 +115,19 @@ export async function verifyPassword(
   hash: string,
   salt: string
 ): Promise<boolean> {
-  const { hash: candidate } = await hashPassword(password, salt);
-  return timingSafeEqual(candidate, hash);
+  const params = storedParams(hash);
+  if (!params) return false;
+
+  try {
+    const candidate = await derive(password, salt, params.iterations);
+    return timingSafeEqual(candidate, params.digest);
+  } catch (err) {
+    // A hash this platform can no longer compute is not a match. Failing
+    // closed is the only safe answer, but it is indistinguishable from a wrong
+    // password to the person typing, so it must be visible to us.
+    console.error("password verification could not run:", err instanceof Error ? err.message : err);
+    return false;
+  }
 }
 
 /** Constant-time compare so a wrong password leaks nothing through timing. */
