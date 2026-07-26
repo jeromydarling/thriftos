@@ -234,10 +234,34 @@ export function Typewriter({
     return () => clearTimeout(timer);
   }, [text, deleting, phraseIndex, phrases, typeMs, holdMs]);
 
+  // The phrases are different lengths, so a naively rendered typewriter
+  // changes the width — and at some viewport widths the line count — of the
+  // heading it sits in on every keystroke, and the whole page shuffles up and
+  // down under the reader while they are trying to read it.
+  //
+  // Both spans occupy the same grid cell, so the box is always the size of the
+  // longest phrase and the animated text is painted over the top of it.
+  // Reserving a fixed width would be wrong: the longest phrase might wrap to
+  // two lines on a narrow screen, and then two lines is the honest height.
+  const longest = phrases.reduce((a, b) => (b.length > a.length ? b : a), "");
+
   return (
-    <span className={className}>
-      {text}
-      <span className="caret" aria-hidden="true" />
+    <span className={`relative inline-grid ${className}`}>
+      {/* Holds the space open. `invisible` rather than opacity-0 so it is out
+          of the accessibility tree as well as out of sight. */}
+      <span className="invisible col-start-1 row-start-1" aria-hidden="true">
+        {longest}
+      </span>
+
+      {/* Announced instead of the animation. A heading that reads "Stop
+          renting your card termin" to a screen reader is worse than one that
+          doesn't move at all. */}
+      <span className="sr-only">{phrases[0]}</span>
+
+      <span className="col-start-1 row-start-1" aria-hidden="true">
+        {text}
+        <span className="caret" aria-hidden="true" />
+      </span>
     </span>
   );
 }

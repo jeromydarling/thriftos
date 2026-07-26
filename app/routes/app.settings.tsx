@@ -8,7 +8,7 @@ import { TAG_COLOR_HEX } from "../lib/markdown";
 import { TRUST_BOUNDARIES } from "../lib/nri/voice";
 import { formatBps, getPlan, PLANS } from "../lib/pricing";
 import { feeCapVolumeCents, maxMonthlyCostCents } from "../lib/savings";
-import { Badge, Button, Card, Field, Input, Notice, money } from "../components/ui";
+import { Badge, Button, Card, Field, Input, Notice, Textarea, money } from "../components/ui";
 import { ConnectPanel } from "../components/ConnectPanel";
 import { canAcceptPayments, getAccount, statusExplanation } from "../lib/stripe/connect";
 import { isTestMode, stripeReadiness } from "../lib/stripe/client";
@@ -129,11 +129,50 @@ export async function action({ request, context }: Route.ActionArgs) {
     return redirect("/app/settings?saved=org");
   }
 
+  if (intent === "website") {
+    // Same read-modify-write as the register form, for the same reason: this
+    // form doesn't show the tax rate and must not blank it.
+    const existing = parseOrgSettings(
+      (await first<{ settings_json: string }>(
+        env.DB,
+        `SELECT settings_json FROM orgs WHERE id = ?`,
+        user.orgId
+      ))?.settings_json
+    );
+
+    await run(
+      env.DB,
+      `UPDATE orgs SET settings_json = ?, updated_at = datetime('now') WHERE id = ?`,
+      serialiseOrgSettings({
+        ...existing,
+        openingHours: String(form.get("opening_hours") ?? ""),
+        donationHours: String(form.get("donation_hours") ?? ""),
+        accepted: String(form.get("accepted") ?? ""),
+        notAccepted: String(form.get("not_accepted") ?? ""),
+      }),
+      user.orgId
+    );
+    return redirect("/app/settings?saved=website");
+  }
+
   if (intent === "register") {
     const taxPct = parseFloat(String(form.get("tax_rate") ?? "0"));
     // Serialised through the shared shape, so the key names here, in the
     // register, and in the server-side pricer are the same by construction.
+    // Read what's there before writing, so this form can't erase the fields
+    // it doesn't show. The typechecker caught this: adding the website fields
+    // to OrgSettings made every partial writer a compile error, which is
+    // precisely the protection a free-form blob doesn't give you.
+    const existing = parseOrgSettings(
+      (await first<{ settings_json: string }>(
+        env.DB,
+        `SELECT settings_json FROM orgs WHERE id = ?`,
+        user.orgId
+      ))?.settings_json
+    );
+
     const settings = serialiseOrgSettings({
+      ...existing,
       // Stored as basis points — a percentage kept as a float rounds wrong.
       taxRateBps: Number.isFinite(taxPct) ? Math.round(taxPct * 100) : 0,
       roundUpEnabled: form.get("round_up") === "on",
@@ -227,6 +266,77 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
             <div className="sm:col-span-2">
               <Button type="submit" disabled={busy}>
                 Save shop details
+              </Button>
+            </div>
+          ) : null}
+        </Form>
+      </Card>
+
+      <Card>
+        <h2 className="font-display text-lg text-bark">What your website says</h2>
+        <p className="mt-2 text-sm leading-relaxed text-slate-soft">
+          These four go straight onto your public page and onto the printable
+          signs in the Studio. Leave one blank and it simply doesn't appear —
+          an empty heading or wrong hours in a window are worse than nothing.
+        </p>
+        <Form method="post" className="mt-4 grid gap-4 sm:grid-cols-2">
+          <input type="hidden" name="intent" value="website" />
+          <Field
+            label="When you're open"
+            name="opening_hours"
+            hint="One line each. Write it how you'd say it — 'Closed bank holidays' is fine."
+          >
+            <Textarea
+              id="opening_hours"
+              name="opening_hours"
+              rows={4}
+              defaultValue={settings.openingHours}
+              placeholder={"Tuesday to Saturday, 10 – 5\nSunday, 12 – 4\nClosed Mondays"}
+              disabled={!canEdit}
+            />
+          </Field>
+          <Field
+            label="When donations can be dropped off"
+            name="donation_hours"
+            hint="Only if it differs from your opening hours."
+          >
+            <Textarea
+              id="donation_hours"
+              name="donation_hours"
+              rows={4}
+              defaultValue={settings.donationHours}
+              placeholder={"Tuesday to Friday, until 4\nPlease don't leave bags outside"}
+              disabled={!canEdit}
+            />
+          </Field>
+          <Field label="What you can take" name="accepted" hint="One per line.">
+            <Textarea
+              id="accepted"
+              name="accepted"
+              rows={5}
+              defaultValue={settings.accepted}
+              placeholder={"Clean clothing and shoes\nBooks and records\nKitchenware"}
+              disabled={!canEdit}
+            />
+          </Field>
+          <Field
+            label="What you can't"
+            name="not_accepted"
+            hint="Saves your volunteers the same conversation every day."
+          >
+            <Textarea
+              id="not_accepted"
+              name="not_accepted"
+              rows={5}
+              defaultValue={settings.notAccepted}
+              placeholder={"Mattresses\nLarge appliances\nAnything damaged or damp"}
+              disabled={!canEdit}
+            />
+          </Field>
+          {canEdit ? (
+            <div className="sm:col-span-2">
+              <Button type="submit" disabled={busy}>
+                Save website details
               </Button>
             </div>
           ) : null}

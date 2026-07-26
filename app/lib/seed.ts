@@ -11,6 +11,7 @@ import { batch, first, run } from "./db";
 import { newId } from "./ids";
 import { DEFAULT_MARKDOWN_RULES, tagColorForIntake } from "./markdown";
 import { hashPassword } from "./auth";
+import { DEFAULT_SETTINGS, serialiseOrgSettings } from "./settings";
 
 // Not "demo": that's the auto-login route, and a shop page now lives at
 // /{slug}. A shop whose slug matched a route would be unreachable, and the
@@ -125,6 +126,48 @@ export async function seedDemoOrg(db: D1Database): Promise<SeedResult> {
       "hello@secondchances.example"
     );
   }
+
+  // The demo shop's own website details.
+  //
+  // Written every reset, not only on creation, because the demo is the first
+  // thing most visitors see and a shop page with no hours and no donation list
+  // renders almost nothing — the live blocks correctly show nothing rather
+  // than an empty heading, which is right behaviour and a poor showcase.
+  await run(
+    db,
+    `UPDATE orgs SET settings_json = ?, updated_at = datetime('now') WHERE id = ?`,
+    serialiseOrgSettings({
+      ...DEFAULT_SETTINGS,
+      taxRateBps: 700,
+      roundUpCause: "our winter coat drive",
+      openingHours: [
+        "Tuesday to Friday, 10 – 5",
+        "Saturday, 10 – 4",
+        "Sunday, 12 – 4",
+        "Closed Mondays and bank holidays",
+      ].join("\n"),
+      donationHours: [
+        "Tuesday to Friday, until 4",
+        "Saturday mornings",
+        "Please don't leave bags outside — they get rained on",
+      ].join("\n"),
+      accepted: [
+        "Clean clothing, shoes and bags",
+        "Books, records and DVDs",
+        "Kitchenware and small homeware",
+        "Toys with all their pieces",
+        "Working small electricals",
+      ].join("\n"),
+      notAccepted: [
+        "Mattresses and divan bases",
+        "Large appliances",
+        "Anything damp, damaged or broken",
+        "Car seats and cot mattresses",
+        "Paint, chemicals and gas bottles",
+      ].join("\n"),
+    }),
+    orgId
+  );
 
   // Demo login, always present and always the same password.
   const demoUser = await first<{ id: string }>(

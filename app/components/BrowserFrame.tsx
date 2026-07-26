@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 /**
  * A chromeless browser frame for the product demos.
  *
@@ -15,13 +16,54 @@ export function BrowserFrame({
   className = "",
   tone = "app",
   floating = false,
+  reserve = false,
 }: {
   url: string;
   children: React.ReactNode;
   className?: string;
   tone?: "app" | "pos";
   floating?: boolean;
+  /**
+   * Hold the content area open at the tallest height it has been.
+   *
+   * For a frame whose contents cycle. Without it the frame is the height of
+   * whichever demo is showing, so the page grows and shrinks under someone
+   * reading further down it — measured at up to 445px of movement on a phone,
+   * which is half a screen.
+   *
+   * Measured rather than configured. A fixed pixel floor was the first attempt
+   * and it was wrong: these demos wrap on a narrow viewport, so the tallest one
+   * is 400px on a laptop and 819px on a phone, and any single number is either
+   * too short somewhere or leaves a hole everywhere else.
+   */
+  reserve?: boolean;
 }) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [floor, setFloor] = useState(0);
+
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!reserve || !el || typeof ResizeObserver === "undefined") return;
+
+    // Grow-only, so it settles: once the floor is the tallest demo, every
+    // measurement equals the floor and nothing changes again.
+    let width = window.innerWidth;
+    const observer = new ResizeObserver(() => {
+      // A different viewport width means different wrapping, and the old floor
+      // would leave a gap under the content forever. Start again.
+      if (window.innerWidth !== width) {
+        width = window.innerWidth;
+        setFloor(0);
+        return;
+      }
+      const height = Math.ceil(el.getBoundingClientRect().height);
+      setFloor((current) => (height > current ? height : current));
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [reserve]);
+
   return (
     <div
       className={`browser-frame overflow-hidden rounded-2xl border border-line/80 bg-white shadow-[0_24px_60px_-24px_rgba(47,42,38,0.35)] ${
@@ -46,7 +88,9 @@ export function BrowserFrame({
           aria-hidden="true"
         />
       </div>
-      <div className="relative bg-linen/40">{children}</div>
+      <div ref={contentRef} className="relative bg-linen/40" style={floor ? { minHeight: floor } : undefined}>
+        {children}
+      </div>
     </div>
   );
 }

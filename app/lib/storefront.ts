@@ -13,6 +13,7 @@ import { currentDiscountPct, effectivePriceCents, DEFAULT_MARKDOWN_RULES } from 
 import { DIVERTED_STATUS_SQL, realOnly } from "./impact";
 import { can, getEntitlements } from "./entitlements";
 import type { PageData } from "../components/blocks";
+import { parseOrgSettings } from "./settings";
 
 export interface ResolvedShop {
   orgId: string;
@@ -165,13 +166,12 @@ export async function loadStorefrontPage(
   const kit = parseBrandKit(kitRow?.kit_json);
   const type = typefaceFor(kit);
 
-  let settings: Record<string, unknown> = {};
-  try {
-    const parsed = JSON.parse(org?.settings_json ?? "{}");
-    if (parsed && typeof parsed === "object") settings = parsed as Record<string, unknown>;
-  } catch {
-    settings = {};
-  }
+  // The typed parser, not a hand-rolled JSON.parse. This file used to read
+  // `openingHours`, `accepted` and `notAccepted` out of an untyped blob that
+  // nothing on earth ever wrote — so a shop's hours and donation lists could
+  // never appear on its own website, and nothing failed to say so. That is the
+  // same shape as the tax bug, and app/lib/settings.ts exists to end it.
+  const settings = parseOrgSettings(org?.settings_json);
 
   // Only query for what the page actually shows. A page with no featured
   // block shouldn't cost an inventory scan.
@@ -189,10 +189,20 @@ export async function loadStorefrontPage(
           photo_key: string | null;
         }>(
           db,
+          // No `listed_online = 1` here, deliberately. That column defaults
+          // to 0 and nothing in the application has ever written it — with the
+          // condition in place this block was empty on every shop's website,
+          // permanently, and nothing failed to say so. The block is already
+          // opt-in at the page level; requiring a second per-item opt-in with
+          // no screen to give it is how a feature ends up blank forever.
+          //
+          // The column stays, unread, for the per-item "keep this off our
+          // website" control that doesn't exist yet. Whoever builds that adds
+          // the condition back here, in this one place, alongside the writer.
           `SELECT id, title, category, price_cents, tag_color, intake_date, photo_key
              FROM items
             WHERE org_id = ? AND status = 'available' AND price_cents > 0
-              AND listed_online = 1 AND ${realOnly()}
+              AND ${realOnly()}
             ORDER BY created_at DESC LIMIT 12`,
           shop.orgId
         )

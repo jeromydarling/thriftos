@@ -6,7 +6,7 @@ import { envFrom } from "../lib/env";
 import { Badge, Button, Card, Input, Notice, money } from "../components/ui";
 import { TAG_COLOR_HEX } from "../lib/markdown";
 import { enqueue, flush, newOfflineId, queued, type QueuedLine } from "../lib/offline";
-import { parseOrgSettings, taxCentsFor } from "../lib/settings";
+import { DEFAULT_SETTINGS, parseOrgSettings, taxCentsFor } from "../lib/settings";
 import { canAcceptPayments, getAccount } from "../lib/stripe/connect";
 import { orgReaders } from "../lib/stripe/terminal";
 
@@ -182,7 +182,11 @@ export default function Register({ loaderData }: Route.ComponentProps) {
   const subtotal = cart.reduce((sum, line) => sum + line.priceCents, 0);
   // Same function the server uses to price a card sale, so the number on
   // screen and the number charged cannot diverge.
-  const tax = taxCentsFor(subtotal, { taxRateBps, roundUpEnabled, roundUpCause }, taxExempt);
+  const tax = taxCentsFor(
+    subtotal,
+    { ...DEFAULT_SETTINGS, taxRateBps, roundUpEnabled, roundUpCause },
+    taxExempt
+  );
   const beforeRoundUp = subtotal + tax;
   // Round up to the next whole dollar — never a fixed "suggested donation".
   const roundUpCents =

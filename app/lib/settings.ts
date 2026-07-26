@@ -23,17 +23,42 @@ export interface OrgSettings {
   roundUpEnabled: boolean;
   /** What the round-up is called at the counter. Concrete beats worthy. */
   roundUpCause: string;
+
+  /**
+   * When the shop is open, one line per line. Free text on purpose: real
+   * opening hours are full of "Closed bank holidays" and "First Sunday of the
+   * month", and a structured week grid would force a shop to lie.
+   */
+  openingHours: string;
+  /** When donations can be dropped off, if that differs from opening hours. */
+  donationHours: string;
+  /** What the shop can take, one per line. */
+  accepted: string;
+  /** What it can't, one per line. Saves a volunteer the same conversation daily. */
+  notAccepted: string;
 }
 
 export const DEFAULT_SETTINGS: OrgSettings = {
   taxRateBps: 0,
   roundUpEnabled: true,
   roundUpCause: "our community programs",
+  // Empty rather than invented. A shop's public page shows nothing at all for
+  // these until somebody fills them in, which is the honest state — printed
+  // opening hours that are wrong are worse than none.
+  openingHours: "",
+  donationHours: "",
+  accepted: "",
+  notAccepted: "",
 };
 
 function num(value: unknown, fallback: number): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
+}
+
+/** Multi-line free text, capped so a paste can't become a shop's whole page. */
+function text(value: unknown, limit = 600): string {
+  return typeof value === "string" ? value.trim().slice(0, limit) : "";
 }
 
 /**
@@ -60,6 +85,10 @@ export function parseOrgSettings(json: string | null | undefined): OrgSettings {
       typeof raw.roundUpCause === "string" && raw.roundUpCause.trim()
         ? raw.roundUpCause.trim()
         : DEFAULT_SETTINGS.roundUpCause,
+    openingHours: text(raw.openingHours),
+    donationHours: text(raw.donationHours),
+    accepted: text(raw.accepted),
+    notAccepted: text(raw.notAccepted),
   };
 }
 

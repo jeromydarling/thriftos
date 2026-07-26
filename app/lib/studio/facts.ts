@@ -12,6 +12,7 @@ import { DEFAULT_MARKDOWN_RULES } from "../markdown";
 import { DIVERTED_STATUS_SQL, realOnly } from "../impact";
 import { parseBrandKit, type BrandKit } from "../brand";
 import type { ShopFacts } from "./assets";
+import { parseOrgSettings } from "../settings";
 
 export interface StudioContext {
   kit: BrandKit;
@@ -135,13 +136,12 @@ export async function gatherStudioContext(
     ),
   ]);
 
-  let settings: Record<string, unknown> = {};
-  try {
-    const parsed = JSON.parse(org?.settings_json ?? "{}");
-    if (parsed && typeof parsed === "object") settings = parsed as Record<string, unknown>;
-  } catch {
-    settings = {};
-  }
+  // The typed parser, not a hand-rolled JSON.parse. This file used to read
+  // `openingHours`, `accepted` and `notAccepted` out of an untyped blob that
+  // nothing on earth ever wrote — so a shop's hours and donation lists could
+  // never appear on its own website, and nothing failed to say so. That is the
+  // same shape as the tax bug, and app/lib/settings.ts exists to end it.
+  const settings = parseOrgSettings(org?.settings_json);
 
   const kit = parseBrandKit(kitRow?.kit_json);
 

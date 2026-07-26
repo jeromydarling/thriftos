@@ -15,11 +15,19 @@ describe("settings round-trip", () => {
       taxRateBps: 700,
       roundUpEnabled: false,
       roundUpCause: "the food pantry",
+      openingHours: "Tue–Sat 10–5",
+      donationHours: "Tue–Fri until 4",
+      accepted: "Clothing\nBooks",
+      notAccepted: "Mattresses",
     });
 
     expect(parseOrgSettings(written)).toEqual({
       taxRateBps: 700,
       roundUpEnabled: false,
+      openingHours: "Tue–Sat 10–5",
+      donationHours: "Tue–Fri until 4",
+      accepted: "Clothing\nBooks",
+      notAccepted: "Mattresses",
       roundUpCause: "the food pantry",
     });
   });
@@ -89,5 +97,32 @@ describe("taxCentsFor", () => {
 
   it("never returns negative tax on a negative subtotal", () => {
     expect(taxCentsFor(-500, { ...DEFAULT_SETTINGS, taxRateBps: 700 })).toBe(0);
+  });
+});
+
+describe("the website fields", () => {
+  it("defaults to empty rather than to invented opening hours", () => {
+    // A shop's public page shows nothing for these until somebody fills them
+    // in. Printed hours that are wrong are worse than no hours at all.
+    const s = parseOrgSettings("{}");
+    expect(s.openingHours).toBe("");
+    expect(s.accepted).toBe("");
+    expect(s.notAccepted).toBe("");
+  });
+
+  it("keeps the line breaks, because they are the format", () => {
+    const s = parseOrgSettings(JSON.stringify({ accepted: "Clothing\nBooks\nKitchenware" }));
+    expect(s.accepted.split("\n")).toEqual(["Clothing", "Books", "Kitchenware"]);
+  });
+
+  it("caps a paste rather than letting it become the whole page", () => {
+    const s = parseOrgSettings(JSON.stringify({ openingHours: "x".repeat(5000) }));
+    expect(s.openingHours.length).toBeLessThanOrEqual(600);
+  });
+
+  it("ignores a value of the wrong type instead of rendering it", () => {
+    const s = parseOrgSettings(JSON.stringify({ accepted: ["Clothing"], openingHours: 42 }));
+    expect(s.accepted).toBe("");
+    expect(s.openingHours).toBe("");
   });
 });

@@ -16,10 +16,25 @@ import { loadStorefrontPage, shopForHostname } from "../lib/storefront";
 import { LinkButton } from "../components/ui";
 import { BrowserFrame } from "../components/BrowserFrame";
 import { DEMOS } from "../components/screens";
-import { CountUp, Marquee, Reveal, Typewriter, useCycle } from "../components/motion";
+import {
+  CountUp,
+  Marquee,
+  Reveal,
+  Typewriter,
+  useCycle,
+} from "../components/motion";
 import { SavingsCalculator } from "../components/SavingsCalculator";
-import { calculateSavings, LABOUR_CLAIM, intakeHoursSavedPerMonth } from "../lib/savings";
-import { formatCents, formatDollars, getPlan, READER_M2_CENTS } from "../lib/pricing";
+import {
+  calculateSavings,
+  LABOUR_CLAIM,
+  intakeHoursSavedPerMonth,
+} from "../lib/savings";
+import {
+  formatCents,
+  formatDollars,
+  getPlan,
+  READER_M2_CENTS,
+} from "../lib/pricing";
 
 export function meta({ loaderData }: Route.MetaArgs) {
   // On a shop's own domain this page is the shop's, so it must not carry our
@@ -32,7 +47,8 @@ export function meta({ loaderData }: Route.MetaArgs) {
   }
 
   return marketingMeta({
-    title: "ThriftOS — the thrift store operating system with no hardware lease",
+    title:
+      "ThriftOS — the thrift store operating system with no hardware lease",
     description:
       "Register, inventory, donors, volunteers, and impact reporting in one place. Tap to Pay or a $59 reader — no 48-month lease, no contract. See exactly what you'd save.",
     path: "/",
@@ -149,10 +165,12 @@ export default function Home({ loaderData }: Route.ComponentProps) {
 
                 <Reveal delay={160}>
                   <p className="mt-6 max-w-xl text-lg leading-relaxed text-slate-soft">
-                    ThriftOS runs the register, the racks, and the relationships — on a phone
-                    you already own, or a reader that costs{" "}
-                    <strong className="text-bark">{formatCents(readerPrice)}</strong> outright.
-                    Not {formatDollars(leaseBuyout)} over four years.
+                    ThriftOS runs the register, the racks, and the relationships
+                    — on a phone you already own, or a reader that costs{" "}
+                    <strong className="text-bark">
+                      {formatCents(readerPrice)}
+                    </strong>{" "}
+                    outright. Not {formatDollars(leaseBuyout)} over four years.
                   </p>
                 </Reveal>
 
@@ -189,7 +207,12 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               </div>
 
               <Reveal delay={200} from="scale">
-                <BrowserFrame url="thriftos.app/app/register" tone="pos" floating>
+                <BrowserFrame
+                  url="thriftos.app/app/register"
+                  tone="pos"
+                  floating
+                  reserve
+                >
                   <RegisterDemo />
                 </BrowserFrame>
               </Reveal>
@@ -221,8 +244,11 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             ))}
           </Marquee>
           <p className="mt-4 text-center text-sm text-bark">
-            ThriftOS: <strong className="text-moss">{formatCents(readerPrice)} once</strong>, or
-            nothing at all if you tap on a phone.
+            ThriftOS:{" "}
+            <strong className="text-moss">
+              {formatCents(readerPrice)} once
+            </strong>
+            , or nothing at all if you tap on a phone.
           </p>
         </section>
 
@@ -238,8 +264,8 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               The whole shop, in one place
             </h2>
             <p className="mt-3 max-w-2xl leading-relaxed text-slate-soft">
-              Every screen below is the real thing, running right here. Not a screenshot —
-              screenshots go stale the week after you take them.
+              Every screen below is the real thing, running right here. Not a
+              screenshot — screenshots go stale the week after you take them.
             </p>
           </Reveal>
 
@@ -268,9 +294,29 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             onMouseEnter={() => setPaused(true)}
             onMouseLeave={() => setPaused(false)}
           >
-            <div key={demo.id} className="motion-safe:animate-rise">
-              <h3 className="font-display text-2xl text-bark">{demo.heading}</h3>
-              <p className="mt-3 leading-relaxed text-slate-soft">{demo.body}</p>
+            <div>
+              {/* Stacked for the same reason the screens are: these headings and
+                bodies are different lengths, so the text column was resizing on
+                every switch even after the frame beside it stopped. */}
+              <div className="grid">
+                {DEMOS.map((item, i) => (
+                  <div
+                    key={`${item.id}-copy`}
+                    className={`col-start-1 row-start-1 ${
+                      i === demoIndex ? "motion-safe:animate-rise" : "invisible"
+                    }`}
+                    aria-hidden={i !== demoIndex}
+                  >
+                    <h3 className="font-display text-2xl text-bark">
+                      {item.heading}
+                    </h3>
+                    <p className="mt-3 leading-relaxed text-slate-soft">
+                      {item.body}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
               <div className="mt-6 flex gap-2" aria-hidden="true">
                 {DEMOS.map((item, i) => (
                   <span
@@ -283,11 +329,36 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               </div>
             </div>
 
-            <div key={`${demo.id}-frame`} className="motion-safe:animate-rise">
-              <BrowserFrame url={demo.url} tone={demo.id === "register" ? "pos" : "app"}>
-                <Screen />
-              </BrowserFrame>
-            </div>
+            {/* Every screen is rendered, stacked in one grid cell, with all but
+                the current one hidden. So the frame is always the height of the
+                tallest demo and switching moves nothing.
+
+                Two simpler things were tried first and both were wrong. A fixed
+                pixel floor is either short on a phone or leaves a hole on a
+                laptop, because these demos wrap. Measuring and keeping the
+                tallest seen only settles after every demo has appeared once,
+                which means the first full cycle — twenty-odd seconds — bounces
+                exactly as before. Rendering them all costs a little DOM and is
+                correct on the first frame at every width. */}
+            <BrowserFrame
+              url={demo.url}
+              tone={demo.id === "register" ? "pos" : "app"}
+              reserve
+            >
+              <div className="grid">
+                {DEMOS.map((item, i) => (
+                  <div
+                    key={item.id}
+                    className={`col-start-1 row-start-1 ${
+                      i === demoIndex ? "motion-safe:animate-rise" : "invisible"
+                    }`}
+                    aria-hidden={i !== demoIndex}
+                  >
+                    <item.Screen />
+                  </div>
+                ))}
+              </div>
+            </BrowserFrame>
           </div>
         </section>
 
@@ -297,15 +368,19 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           else, and is about to belong to a third person.
         </Band>
 
-        <section id="savings" className="scroll-mt-8 border-y border-line bg-white py-20 sm:py-28">
+        <section
+          id="savings"
+          className="scroll-mt-8 border-y border-line bg-white py-20 sm:py-28"
+        >
           <div className="mx-auto max-w-6xl px-4">
             <Reveal>
               <h2 className="max-w-2xl font-display text-3xl text-bark sm:text-4xl">
                 What you'd actually save
               </h2>
               <p className="mt-3 max-w-2xl leading-relaxed text-slate-soft">
-                Move the sliders. The numbers are computed live from published pricing — ours
-                and theirs — and the calculator will tell you if we'd cost you more.
+                Move the sliders. The numbers are computed live from published
+                pricing — ours and theirs — and the calculator will tell you if
+                we'd cost you more.
               </p>
             </Reveal>
 
@@ -322,14 +397,19 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                     If you're leasing a terminal
                   </p>
                   <p className="mt-2 font-display text-4xl text-moss">
-                    <CountUp to={Math.round(leasedAnnualSavings / 100)} format={(n) => `$${n.toLocaleString("en-US")}`} />
+                    <CountUp
+                      to={Math.round(leasedAnnualSavings / 100)}
+                      format={(n) => `$${n.toLocaleString("en-US")}`}
+                    />
                   </p>
                   <p className="mt-1 text-sm text-bark">
-                    a year, about {leasedPct.toFixed(0)}% lower — for a small shop
+                    a year, about {leasedPct.toFixed(0)}% lower — for a small
+                    shop
                   </p>
                   <p className="mt-3 text-sm leading-relaxed text-slate-soft">
-                    This is the case where switching is genuinely obvious. You're walking away
-                    from a {formatDollars(leaseBuyout)} obligation and replacing it with a{" "}
+                    This is the case where switching is genuinely obvious.
+                    You're walking away from a {formatDollars(leaseBuyout)}{" "}
+                    obligation and replacing it with a{" "}
                     {formatCents(readerPrice)} reader.
                   </p>
                 </div>
@@ -341,14 +421,19 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                     If you're on fair software-only pricing
                   </p>
                   <p className="mt-2 font-display text-4xl text-bark">
-                    <CountUp to={Math.round(softwareAnnualSavings / 100)} format={(n) => `$${n.toLocaleString("en-US")}`} />
+                    <CountUp
+                      to={Math.round(softwareAnnualSavings / 100)}
+                      format={(n) => `$${n.toLocaleString("en-US")}`}
+                    />
                   </p>
                   <p className="mt-1 text-sm text-bark">
-                    a year, about {softwarePct.toFixed(0)}% lower — for a small shop
+                    a year, about {softwarePct.toFixed(0)}% lower — for a small
+                    shop
                   </p>
                   <p className="mt-3 text-sm leading-relaxed text-slate-soft">
-                    Real, but modest — and at higher volume our percentage fee can tip the
-                    other way. We'd rather you read that here than find it in a spreadsheet.
+                    Real, but modest — and at higher volume our percentage fee
+                    can tip the other way. We'd rather you read that here than
+                    find it in a spreadsheet.
                   </p>
                 </div>
               </Reveal>
@@ -376,27 +461,36 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                 The bigger saving isn't money. It's Tuesday afternoon.
               </h2>
               <p className="mt-4 leading-relaxed text-slate-soft">
-                In a volunteer-run shop the scarce resource was never cash — it's the four
-                people who showed up. Shops adopting AI-assisted intake have reported sorting
-                time dropping from around{" "}
-                <strong className="text-bark">{LABOUR_CLAIM.fromSeconds} seconds an item</strong>{" "}
-                to about <strong className="text-bark">{LABOUR_CLAIM.toSeconds}</strong>, and
-                revenue per square foot up roughly{" "}
-                <strong className="text-bark">{LABOUR_CLAIM.revenuePerSqFtLiftPct}%</strong>.
+                In a volunteer-run shop the scarce resource was never cash —
+                it's the four people who showed up. Shops adopting AI-assisted
+                intake have reported sorting time dropping from around{" "}
+                <strong className="text-bark">
+                  {LABOUR_CLAIM.fromSeconds} seconds an item
+                </strong>{" "}
+                to about{" "}
+                <strong className="text-bark">{LABOUR_CLAIM.toSeconds}</strong>,
+                and revenue per square foot up roughly{" "}
+                <strong className="text-bark">
+                  {LABOUR_CLAIM.revenuePerSqFtLiftPct}%
+                </strong>
+                .
               </p>
               <p className="mt-4 text-sm leading-relaxed text-slate-soft">
                 At a thousand items a month that's about{" "}
-                <strong className="text-bark">{hoursSaved} volunteer hours</strong> handed back
-                — roughly two full shifts.
+                <strong className="text-bark">
+                  {hoursSaved} volunteer hours
+                </strong>{" "}
+                handed back — roughly two full shifts.
               </p>
               <p className="mt-4 rounded-xl border border-line bg-white p-4 text-sm leading-relaxed text-slate-soft">
                 <strong className="text-bark">In fairness:</strong> that's{" "}
-                {LABOUR_CLAIM.attribution}, not a measurement of ThriftOS. {LABOUR_CLAIM.caveat}
+                {LABOUR_CLAIM.attribution}, not a measurement of ThriftOS.{" "}
+                {LABOUR_CLAIM.caveat}
               </p>
             </Reveal>
 
             <Reveal from="right" delay={120}>
-              <BrowserFrame url="thriftos.app/app/intake">
+              <BrowserFrame url="thriftos.app/app/intake" reserve>
                 <IntakeDemo />
               </BrowserFrame>
             </Reveal>
@@ -410,7 +504,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           <div className="mx-auto max-w-6xl px-4">
             <div className="grid items-center gap-12 lg:grid-cols-2">
               <Reveal from="left">
-                <BrowserFrame url="thriftos.app/app">
+                <BrowserFrame url="thriftos.app/app" reserve>
                   <CompassDemo />
                 </BrowserFrame>
               </Reveal>
@@ -423,10 +517,10 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                   The part that notices things
                 </h2>
                 <p className="mt-4 leading-relaxed text-slate-soft">
-                  A donor quiet against their own rhythm. A volunteer who's drifted off the
-                  schedule. Stock that's run the whole rotation. A milestone worth saying out
-                  loud. NRI gathers it into one calm place and shows the exact records behind
-                  every signal.
+                  A donor quiet against their own rhythm. A volunteer who's
+                  drifted off the schedule. Stock that's run the whole rotation.
+                  A milestone worth saying out loud. NRI gathers it into one
+                  calm place and shows the exact records behind every signal.
                 </p>
                 <ul className="mt-6 space-y-2.5 text-sm text-slate-soft">
                   {[
@@ -481,9 +575,14 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                   d: "Switching costs are real. A feature list is rarely worth retraining a volunteer crew who finally stopped asking how to do a refund.",
                 },
               ].map((item) => (
-                <li key={item.t} className="rounded-xl border border-line bg-white p-5">
+                <li
+                  key={item.t}
+                  className="rounded-xl border border-line bg-white p-5"
+                >
                   <p className="font-display text-lg text-bark">{item.t}</p>
-                  <p className="mt-1.5 text-sm leading-relaxed text-slate-soft">{item.d}</p>
+                  <p className="mt-1.5 text-sm leading-relaxed text-slate-soft">
+                    {item.d}
+                  </p>
                 </li>
               ))}
             </ul>
@@ -500,8 +599,9 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                 Look around before you decide anything
               </h2>
               <p className="mx-auto mt-4 max-w-xl leading-relaxed text-slate-soft">
-                The demo is a real shop with real data, a working Compass, and a register you
-                can ring a sale on. No signup, no card, nothing to undo.
+                The demo is a real shop with real data, a working Compass, and a
+                register you can ring a sale on. No signup, no card, nothing to
+                undo.
               </p>
               <div className="mt-8 flex flex-wrap justify-center gap-3">
                 <LinkButton to="/demo">Open the demo shop</LinkButton>
@@ -510,7 +610,8 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                 </LinkButton>
               </div>
               <p className="mt-6 text-sm text-slate-soft">
-                Starts at {formatCents(volunteerPrice)}/month. Volunteer logins are always free.
+                Starts at {formatCents(volunteerPrice)}/month. Volunteer logins
+                are always free.
               </p>
             </Reveal>
           </div>
