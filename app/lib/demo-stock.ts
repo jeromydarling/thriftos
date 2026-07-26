@@ -8,15 +8,22 @@
  *
  * So a dozen items carry real photographs: back-room snapshots on carpets and
  * cluttered worktops, drawn once and committed (see `app/content/demo-photos`).
- * They are the *input* to the cleanup, not a showcase of it — nothing here is
- * pre-tidied, because a demo whose "before" is already good demonstrates
- * nothing and a pre-drawn "after" would be a claim we hadn't earned.
+ * Every one is drawn badly on purpose — they are the *input* to the cleanup,
+ * and a demo whose "before" is already good demonstrates nothing.
+ *
+ * Half are then tidied by running the real cleanup at seed time, so the shop
+ * window shows both what a photographed item looks like before and after. No
+ * "after" is ever drawn: an image a model invented, presented as what this
+ * product does to your photographs, would be exactly the claim the whole
+ * feature is built not to make.
  *
  * The bytes live in the client bundle and are copied into R2 on seed, which is
  * the only way to have them without a Cloudflare credential in the repository
  * or a manual upload step somebody has to remember.
  */
 import { DEMO_PHOTOS, demoAssetPath, demoMediaKey } from "../content/demo-photos";
+import { all, run } from "./db";
+import { enhanceItemPhoto } from "./enhance";
 import { tagColorForIntake } from "./markdown";
 import { newId } from "./ids";
 import type { AppEnv } from "./env";
@@ -127,3 +134,56 @@ export function demoWindowStatements(
 }
 
 export const DEMO_WINDOW_COUNT = DEMO_PHOTOS.length;
+
+/**
+ * Tidy up half the window, and leave the other half to be tidied.
+ *
+ * A demo shop whose window is entirely untidied snapshots shows a cleanup tool
+ * that nobody has used; one that's entirely tidied shows a bench with no work
+ * on it. Half and half shows both at once — the storefront makes the case, and
+ * the photo bench still has something to do.
+ *
+ * It runs the real `enhanceItemPhoto`, so the demo cannot show a result the
+ * product doesn't produce. The review flag is then set directly, which is the
+ * one liberty taken: in a real shop that flag means a person looked. Nobody
+ * looked here, but nobody donated the jumper either.
+ *
+ * Deliberately last, deliberately caught, and deliberately small. This is the
+ * garnish on the seed — if the subrequest budget runs out or the Images
+ * binding is dark, the demo is a shop with untidied photographs, which is a
+ * perfectly good shop.
+ */
+export async function tidyDemoWindow(env: AppEnv, orgId: string): Promise<number> {
+  if (!env.IMAGES) return 0;
+
+  const half = DEMO_PHOTOS.slice(0, Math.floor(DEMO_PHOTOS.length / 2)).map((p) =>
+    demoMediaKey(p.id)
+  );
+
+  const rows = await all<{ id: string }>(
+    env.DB,
+    `SELECT id FROM items
+      WHERE org_id = ? AND photo_key IN (${half.map(() => "?").join(",")})`,
+    orgId,
+    ...half
+  );
+
+  let tidied = 0;
+  for (const row of rows) {
+    try {
+      const result = await enhanceItemPhoto(env, orgId, row.id);
+      if (!result.ok) continue;
+      await run(
+        env.DB,
+        `UPDATE items SET photo_enhanced_at = datetime('now') WHERE id = ? AND org_id = ?`,
+        row.id,
+        orgId
+      );
+      tidied++;
+    } catch (err) {
+      console.warn(`demo tidy-up for ${row.id} skipped:`, err);
+    }
+  }
+
+  return tidied;
+}

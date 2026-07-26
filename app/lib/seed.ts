@@ -10,7 +10,12 @@
 import { batch, first, run } from "./db";
 import { newId } from "./ids";
 import { DEFAULT_MARKDOWN_RULES, tagColorForIntake } from "./markdown";
-import { copyDemoPhotos, DEMO_WINDOW_COUNT, demoWindowStatements } from "./demo-stock";
+import {
+  copyDemoPhotos,
+  DEMO_WINDOW_COUNT,
+  demoWindowStatements,
+  tidyDemoWindow,
+} from "./demo-stock";
 import type { AppEnv } from "./env";
 import { hashPassword } from "./auth";
 import { DEFAULT_SETTINGS, serialiseOrgSettings } from "./settings";
@@ -497,6 +502,11 @@ export async function seedDemoOrg(env: AppEnv): Promise<SeedResult> {
   for (let i = 0; i < stmts.length; i += 40) {
     await batch(db, stmts.slice(i, i + 40));
   }
+
+  // Garnish, after everything that matters. Tidies half the window so the demo
+  // shows both a shop with product shots and a bench with work left on it. If
+  // it can't, the demo is a shop with untidied photographs — which is fine.
+  await tidyDemoWindow(env, orgId);
 
   return {
     orgId,

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   DEMO_BEFORE_AFTER,
@@ -153,5 +154,31 @@ describe("the before-and-after in the help centre", () => {
         }
       }
     }
+  });
+});
+
+describe("what the demo shop ends up looking like", () => {
+  const stock = readFileSync("app/lib/demo-stock.ts", "utf8");
+
+  it("tidies some of the window but not all of it", () => {
+    // All tidied and the photo bench has no work in it; none tidied and the
+    // shop window is a page of carpets. Half shows both.
+    expect(stock).toMatch(/DEMO_PHOTOS\.slice\(0, Math\.floor\(DEMO_PHOTOS\.length \/ 2\)\)/);
+  });
+
+  it("tidies by running the real thing", () => {
+    // Not a second implementation and not a pre-drawn file: the demo must not
+    // be able to show a result the product doesn't produce.
+    expect(stock).toContain("enhanceItemPhoto");
+    expect(stock).not.toMatch(/AI\.run|flux/i);
+  });
+
+  it("gives an item a photo key only when the bytes are there", () => {
+    expect(stock).toMatch(/present\.has\(photo\.id\) \? demoMediaKey\(photo\.id\) : null/);
+  });
+
+  it("copies photographs before it writes the rows that point at them", () => {
+    const seed = readFileSync("app/lib/seed.ts", "utf8");
+    expect(seed.indexOf("copyDemoPhotos")).toBeLessThan(seed.indexOf("demoWindowStatements("));
   });
 });
