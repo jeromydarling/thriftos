@@ -325,6 +325,25 @@ export const ONLINE_ARTICLES: readonly HelpArticle[] = [
         ],
       },
       {
+        heading: "What it actually does to a real photograph",
+        body: [
+          "This is a genuine back-room snapshot from our demo shop — a dark green jumper on a patterned rug, shot at an angle in bad light, with a sofa and a remote control in the corner. It is the hardest case, which is why it's the one shown.",
+        ],
+        comparison: {
+          before: {
+            src: "/img/demo/cable-knit.jpg",
+            caption: "What somebody photographed",
+            alt: "A forest green cable knit sweater lying on a patterned rug, photographed at an angle with household clutter at the edges.",
+          },
+          after: {
+            src: "/api/demo/tidied/cable-knit.webp",
+            caption: "What goes on the listing",
+            alt: "The same sweater, cut out of its background and centred on a plain off-white square.",
+          },
+          note: "The picture on the right is produced when you load this page, by the same code your own photographs go through — not a screenshot of a good result we kept. Look at the jumper itself in both: same wear, same colour, same everything.",
+        },
+      },
+      {
         heading: "How it works",
         steps: [
           {

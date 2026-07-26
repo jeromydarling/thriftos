@@ -9,7 +9,9 @@ import { all, first, run } from "../lib/db";
 import { newId, newToken } from "../lib/ids";
 import { getUser } from "../lib/auth";
 import { decideEnhancedPhoto, enhanceItemPhoto } from "../lib/enhance";
-import { imageBytes } from "../lib/photos";
+import { ENHANCE_OUTPUT, enhanceTransform, imageBytes, seamlessFor } from "../lib/photos";
+import { luminance } from "../lib/brand";
+import { DEMO_PHOTOS, demoAssetPath } from "../content/demo-photos";
 import { clientIp, LIMITS, rateLimit, recordAttempt } from "../lib/ratelimit";
 import { extractItemFromPhoto, confidenceLabel } from "../lib/ai";
 import { findOrCreateContact } from "../lib/contacts";
@@ -84,6 +86,63 @@ api.get("/api/media/:key{.+}", async (c) => {
 
   headers.set("Content-Type", object.httpMetadata?.contentType ?? "image/jpeg");
   return new Response(object.body, { headers });
+});
+
+/* ─── The help centre's before-and-after ────────────────────────────────── */
+
+/**
+ * The tidied version of one of the demo shop's snapshots.
+ *
+ * Computed, not drawn. The help centre shows a before and an after side by
+ * side, and the after is produced here by the same `enhanceTransform` a real
+ * shop's photographs go through — so the example can never claim something the
+ * product doesn't do. A pair of committed screenshots would drift the first
+ * time the transformation changed, and drift silently, which is the one thing
+ * a page making a promise about honesty must not do.
+ *
+ * Public, because the help centre is. Safe because the id has to be one of the
+ * dozen demo photographs by name: no path, no user input reaching R2, nothing
+ * to traverse.
+ */
+api.get("/api/demo/tidied/:id", async (c) => {
+  const id = c.req.param("id").replace(/\.(jpg|webp)$/, "");
+  const photo = DEMO_PHOTOS.find((p) => p.id === id);
+  if (!photo) return c.notFound();
+
+  const asset = await c.env.ASSETS.fetch(
+    new Request(`https://assets.invalid/${demoAssetPath(photo.id)}`)
+  );
+  if (!asset.ok) return c.notFound();
+
+  // The default seamless rather than a shop's own. This is an illustration in
+  // the help centre, not a listing, and reading a brand kit for it would put a
+  // database query behind a public image.
+  const background = seamlessFor("", luminance);
+
+  const headers = new Headers({
+    // A year. The input is a committed file and the transformation is
+    // deterministic, so the answer cannot change without a deploy.
+    "Cache-Control": "public, max-age=31536000, immutable",
+  });
+
+  if (!c.env.IMAGES) {
+    // Better the untidied original than a broken image: the page still reads,
+    // and the caption still says which is which.
+    headers.set("Content-Type", "image/jpeg");
+    return new Response(await asset.arrayBuffer(), { headers });
+  }
+
+  try {
+    const { stream } = await imageBytes(asset);
+    const result = await c.env.IMAGES.input(stream)
+      .transform(enhanceTransform({ background }))
+      .output(ENHANCE_OUTPUT);
+    headers.set("Content-Type", "image/webp");
+    return new Response(result.image(), { headers });
+  } catch (err) {
+    console.warn("demo tidy-up failed:", err);
+    return c.notFound();
+  }
 });
 
 /* ─── Item intake: photo → R2 → Workers AI ──────────────────────────────── */

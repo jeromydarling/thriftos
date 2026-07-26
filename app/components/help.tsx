@@ -157,6 +157,36 @@ function Section({ section }: { section: HelpSection }) {
         </div>
       ) : null}
 
+      {/* A worked example, side by side. Stacks on a phone rather than
+          shrinking to two thumbnails nobody can read anything from. */}
+      {section.comparison ? (
+        <figure className="mt-5">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[section.comparison.before, section.comparison.after].map((shot, i) => (
+              <div key={shot.src}>
+                <img
+                  src={shot.src}
+                  alt={shot.alt}
+                  width={800}
+                  height={800}
+                  loading="lazy"
+                  decoding="async"
+                  className={`aspect-square w-full rounded-xl border border-line bg-linen/60 ${
+                    i === 0 ? "object-cover" : "object-contain"
+                  }`}
+                />
+                <p className="mt-1.5 text-xs font-medium text-slate-soft">{shot.caption}</p>
+              </div>
+            ))}
+          </div>
+          {section.comparison.note ? (
+            <figcaption className="mt-3 text-sm leading-relaxed text-slate-soft">
+              {section.comparison.note}
+            </figcaption>
+          ) : null}
+        </figure>
+      ) : null}
+
       {section.callout ? (
         <div
           className={`mt-5 rounded-xl border p-4 ${

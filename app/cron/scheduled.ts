@@ -163,7 +163,7 @@ export async function runDaily(env: AppEnv): Promise<void> {
 
   // The demo must never be found empty by a visitor.
   await record(db, "demo_selfheal", async () => {
-    const orgId = await ensureDemoSeeded(db);
+    const orgId = await ensureDemoSeeded(env);
     return { org_id: orgId };
   });
 }
@@ -201,7 +201,7 @@ export async function runWeekly(env: AppEnv): Promise<void> {
 
   // A fresh demo every week — nobody wants to meet last month's mess.
   await record(db, "demo_reset", async () => {
-    const result = await seedDemoOrg(db);
+    const result = await seedDemoOrg(env);
     return { org_id: result.orgId, items: result.items, slug: DEMO_SLUG };
   });
 }

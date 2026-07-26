@@ -8,7 +8,12 @@
   "placement": { "mode": "smart" },
 
   "assets": {
-    "directory": "./build/client"
+    "directory": "./build/client",
+    // Bound as well as served. The demo seed reads its own bundled
+    // photographs through this to copy them into R2 — the alternative was the
+    // Worker fetching its own public URL, which is a network round trip to
+    // read a file it is already carrying.
+    "binding": "ASSETS"
   },
 
   "vars": {

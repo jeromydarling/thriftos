@@ -1,15 +1,17 @@
 /**
- * Generate the homepage photography with FLUX.2 on Workers AI.
+ * Generate the project's photography with FLUX.2 on Workers AI.
  *
  * Run once, commit the output. This is not part of the build — the images are
- * static files in public/img and the site never calls a model to draw them.
+ * static files under public/img and nothing calls a model to draw them at
+ * request time.
  *
- *   CLOUDFLARE_API_TOKEN=... node scripts/generate-imagery.mjs [id ...]
+ *   CLOUDFLARE_API_TOKEN=... node scripts/generate-imagery.mjs [--set=NAME] [id ...]
  *
- * With no arguments it generates every shot that doesn't already exist. Pass
- * ids to force those specific ones to be redrawn:
+ * With no arguments it generates every shot in the set that doesn't already
+ * exist. Pass ids to force those specific ones to be redrawn:
  *
  *   node scripts/generate-imagery.mjs rail counter
+ *   node scripts/generate-imagery.mjs --set=demo cable-knit
  *
  * The account id is discovered from the token rather than being a second
  * secret to keep in step. The token needs Workers AI read/write on top of
@@ -23,24 +25,53 @@ const MODEL = "@cf/black-forest-labs/flux-2-dev";
 const STEPS = 28;
 /** A request still silent after this is stuck, not working. */
 const REQUEST_TIMEOUT_MS = 150_000;
-const OUT_DIR = "public/img";
 const API = "https://api.cloudflare.com/client/v4";
+
+/**
+ * Two sets, one pipeline.
+ *
+ * The prompts live in app/content/, next to the alt text the app renders, so
+ * the two can't drift. Node strips the types on import, which saves adding a
+ * build step for one file — and means a change to the shape over there fails
+ * here rather than silently generating a different set.
+ *
+ * `site` is the marketing photography, which flatters. `demo` is the demo
+ * shop's stock, which deliberately does not — those prompts ask for clutter,
+ * bad light and crooked framing, because they are the *input* to the cleanup
+ * and a cleanup demonstrated on studio photography demonstrates nothing.
+ *
+ * They share everything else. A second copy of the retry logic and the
+ * multipart handling is a second place for the next FLUX quirk to be fixed
+ * only once.
+ */
+const SETS = {
+  site: {
+    dir: "public/img",
+    async load() {
+      const { SHOTS, fullPrompt } = await import("../app/content/imagery.ts");
+      return SHOTS.map((s) => ({ ...s, prompt: fullPrompt(s) }));
+    },
+  },
+  demo: {
+    dir: "public/img/demo",
+    async load() {
+      const { DEMO_PHOTOS, snapshotPrompt, DEMO_PHOTO_SIZE } = await import(
+        "../app/content/demo-photos.ts"
+      );
+      return DEMO_PHOTOS.map((p) => ({
+        id: p.id,
+        prompt: snapshotPrompt(p),
+        width: DEMO_PHOTO_SIZE,
+        height: DEMO_PHOTO_SIZE,
+      }));
+    },
+  },
+};
 
 const token = process.env.CLOUDFLARE_API_TOKEN;
 if (!token) {
   console.error("CLOUDFLARE_API_TOKEN is not set.");
   process.exit(1);
-}
-
-/**
- * The prompts live in app/content/imagery.ts, next to the alt text the site
- * renders, so the two can't drift. Node strips the types on import, which
- * saves adding a build step for one file — and means a change to the shape
- * over there fails here rather than silently generating a different set.
- */
-async function loadShots() {
-  const { SHOTS, fullPrompt } = await import("../app/content/imagery.ts");
-  return SHOTS.map((s) => ({ ...s, prompt: fullPrompt(s) }));
 }
 
 async function accountId() {
@@ -146,8 +177,18 @@ async function compress(bytes, jpegPath) {
   return statSync(jpegPath).size;
 }
 
-const shots = await loadShots();
-const only = process.argv.slice(2);
+const args = process.argv.slice(2);
+const setFlag = args.find((a) => a.startsWith("--set="));
+const setName = setFlag ? setFlag.slice("--set=".length) : "site";
+const set = SETS[setName];
+if (!set) {
+  console.error(`Unknown set "${setName}". Known sets: ${Object.keys(SETS).join(", ")}`);
+  process.exit(1);
+}
+
+const OUT_DIR = set.dir;
+const shots = await set.load();
+const only = args.filter((a) => a !== setFlag);
 const wanted = only.length ? shots.filter((s) => only.includes(s.id)) : shots;
 
 if (only.length && wanted.length !== only.length) {

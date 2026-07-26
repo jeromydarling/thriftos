@@ -10,6 +10,8 @@
 import { batch, first, run } from "./db";
 import { newId } from "./ids";
 import { DEFAULT_MARKDOWN_RULES, tagColorForIntake } from "./markdown";
+import { copyDemoPhotos, DEMO_WINDOW_COUNT, demoWindowStatements } from "./demo-stock";
+import type { AppEnv } from "./env";
 import { hashPassword } from "./auth";
 import { DEFAULT_SETTINGS, serialiseOrgSettings } from "./settings";
 
@@ -93,7 +95,8 @@ export async function wipeOrgData(db: D1Database, orgId: string): Promise<void> 
 }
 
 /** Create-or-reset the demo shop. Idempotent — safe on every cron tick. */
-export async function seedDemoOrg(db: D1Database): Promise<SeedResult> {
+export async function seedDemoOrg(env: AppEnv): Promise<SeedResult> {
+  const db = env.DB;
   const existing = await first<{ id: string }>(
     db,
     `SELECT id FROM orgs WHERE slug = ?`,
@@ -480,6 +483,16 @@ export async function seedDemoOrg(db: D1Database): Promise<SeedResult> {
     );
   });
 
+  // Photographs first, rows second. An item is given a photo_key only if the
+  // bytes actually landed — a row pointing at a photograph that isn't there is
+  // a broken image on the shop window, and the window is the first thing
+  // anybody sees.
+  const photographed = await copyDemoPhotos(env);
+
+  // The window: the dozen items that carry real photographs. Added last so
+  // they are the newest in the shop, which is what the storefront shows first.
+  stmts.push(...demoWindowStatements(db, orgId, floorId, photographed));
+
   // Batch in chunks — the per-request subrequest budget is not generous.
   for (let i = 0; i < stmts.length; i += 40) {
     await batch(db, stmts.slice(i, i + 40));
@@ -487,7 +500,7 @@ export async function seedDemoOrg(db: D1Database): Promise<SeedResult> {
 
   return {
     orgId,
-    items: 260,
+    items: 260 + DEMO_WINDOW_COUNT,
     contacts: PEOPLE.length,
     donations: donationCount,
     transactions: txCount,
@@ -496,10 +509,11 @@ export async function seedDemoOrg(db: D1Database): Promise<SeedResult> {
 }
 
 /** Self-heal: if the demo is ever found empty, rebuild it before anyone notices. */
-export async function ensureDemoSeeded(db: D1Database): Promise<string | null> {
+export async function ensureDemoSeeded(env: AppEnv): Promise<string | null> {
+  const db = env.DB;
   const org = await first<{ id: string }>(db, `SELECT id FROM orgs WHERE slug = ?`, DEMO_SLUG);
   if (!org) {
-    const result = await seedDemoOrg(db);
+    const result = await seedDemoOrg(env);
     return result.orgId;
   }
   const items = await first<{ n: number }>(
@@ -508,7 +522,7 @@ export async function ensureDemoSeeded(db: D1Database): Promise<string | null> {
     org.id
   );
   if (Number(items?.n ?? 0) === 0) {
-    await seedDemoOrg(db);
+    await seedDemoOrg(env);
   }
   return org.id;
 }

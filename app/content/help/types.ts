@@ -143,6 +143,20 @@ export interface HelpSection {
   callout?: { tone: "note" | "warn" | "good"; title: string; body: string };
   /** A small reference table where one genuinely helps. */
   table?: { headers: string[]; rows: string[][] };
+  /**
+   * A worked example, shown as two images side by side.
+   *
+   * Both are URLs the app serves. The "after" is expected to be *computed* by
+   * the same code the feature uses rather than a committed screenshot — an
+   * example that was drawn once can promise something the product has since
+   * stopped doing, and do it silently.
+   */
+  comparison?: {
+    before: { src: string; caption: string; alt: string };
+    after: { src: string; caption: string; alt: string };
+    /** The honest note under the pair. */
+    note?: string;
+  };
 }
 
 export interface HelpArticle {

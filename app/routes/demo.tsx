@@ -22,7 +22,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   // failure from the nightly cron is already recorded, rather than into a log
   // nobody reads.
   try {
-    await ensureDemoSeeded(env.DB);
+    await ensureDemoSeeded(env);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("demo rebuild failed:", message);
