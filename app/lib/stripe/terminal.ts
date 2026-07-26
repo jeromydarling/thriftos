@@ -58,6 +58,12 @@ export interface StripePaymentIntent {
   latest_charge?: string | null;
   application_fee_amount?: number | null;
   last_payment_error?: { code?: string; message?: string } | null;
+  /**
+   * Only present on intents a browser will confirm. It authorises confirming
+   * this one payment and nothing else, which is why it is the only part of a
+   * payment intent that may be sent to a shopper.
+   */
+  client_secret?: string | null;
 }
 
 /**
@@ -234,6 +240,63 @@ export async function createCardPresentIntent(
       metadata: {
         thriftos_transaction_id: opts.transactionId,
         thriftos_org_id: opts.orgId,
+        ...(opts.metadata ?? {}),
+      },
+    },
+    idempotencyKey
+  );
+}
+
+/**
+ * A payment intent for a card typed into a browser.
+ *
+ * The same destination-charge shape as the counter — `on_behalf_of` plus
+ * `transfer_data.destination`, so the shop is the merchant of record and we
+ * carry the dispute liability deliberately rather than by accident. The only
+ * real differences are the payment method type and that nobody is holding the
+ * card, so Stripe may need to send the shopper to their bank: `requires_action`
+ * is an ordinary outcome online where it is nearly unheard of on a reader.
+ *
+ * Returns the client secret, which is the one piece of this the browser sees.
+ * It authorises confirming *this* payment and nothing else.
+ */
+export async function createOnlineIntent(
+  config: StripeConfig,
+  opts: CardPresentIntentOptions & { receiptEmail?: string | null },
+  idempotencyKey: string
+): Promise<StripePaymentIntent> {
+  const amount = Math.round(opts.amountCents);
+  const fee = Math.round(opts.applicationFeeCents);
+
+  // The same three refusals as the counter. An online order is not a reason to
+  // trust an amount less.
+  if (amount <= 0) throw new Error("A payment must be for a positive amount.");
+  if (fee < 0) throw new Error("A platform fee cannot be negative.");
+  if (fee >= amount) {
+    throw new Error(
+      `Platform fee (${fee}) is not less than the payment (${amount}). Refusing to charge.`
+    );
+  }
+
+  return stripeRequest<StripePaymentIntent>(
+    config,
+    "POST",
+    "/payment_intents",
+    {
+      amount,
+      currency: opts.currency ?? "usd",
+      "automatic_payment_methods[enabled]": "true",
+      on_behalf_of: opts.connectedAccountId,
+      transfer_data: { destination: opts.connectedAccountId },
+      ...(fee > 0 ? { application_fee_amount: fee } : {}),
+      ...(opts.receiptEmail ? { receipt_email: opts.receiptEmail } : {}),
+      ...(opts.statementDescriptorSuffix
+        ? { statement_descriptor_suffix: opts.statementDescriptorSuffix.slice(0, 22) }
+        : {}),
+      metadata: {
+        thriftos_transaction_id: opts.transactionId,
+        thriftos_org_id: opts.orgId,
+        thriftos_channel: "online",
         ...(opts.metadata ?? {}),
       },
     },

@@ -18,6 +18,8 @@ import { applyInventoryEffect, type PaymentState } from "../lib/payments";
 import { getPaymentIntent, stateForIntent } from "../lib/stripe/terminal";
 import { sweepAlerts } from "../lib/alerts";
 import { pendingDomains, refreshDomain } from "../lib/domains";
+import { releaseExpiredHolds } from "../lib/checkout";
+import { HOLD_MINUTES } from "../lib/orders";
 
 async function record(
   db: D1Database,
@@ -164,6 +166,24 @@ export async function runDaily(env: AppEnv): Promise<void> {
     const orgId = await ensureDemoSeeded(db);
     return { org_id: orgId };
   });
+}
+
+/**
+ * The frequent pass. Minutes, not hours.
+ *
+ * Only one job lives here, and it has to: a checkout holds stock for fifteen
+ * minutes, so a release that runs once a day would leave a coat off the rail
+ * until tomorrow morning. A hold nobody clears is an item that has quietly
+ * stopped being for sale — the same harm as selling it twice, arriving slowly,
+ * and invisible because nothing looks broken.
+ *
+ * Deliberately not "run the daily jobs more often". Everything else in the
+ * daily pass is expensive or writes reports, and running it every ten minutes
+ * would be a way to spend money and confuse the run log.
+ */
+export async function runFrequent(env: AppEnv): Promise<void> {
+  const db = env.DB;
+  await record(db, "release_holds", async () => releaseExpiredHolds(db, HOLD_MINUTES));
 }
 
 export async function runWeekly(env: AppEnv): Promise<void> {
