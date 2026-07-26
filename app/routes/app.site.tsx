@@ -11,6 +11,7 @@ import {
   DEFAULT_HOME,
   parseBlocks,
   serialiseBlocks,
+  pageSlugAvailable,
   slugAvailable,
   suggestSlug,
   type Block,
@@ -117,6 +118,11 @@ export async function action({ request, context }: Route.ActionArgs) {
     const slug = String(form.get("slug") ?? "");
     const title = String(form.get("title") ?? "").trim() || "Untitled";
 
+    // A page called "basket" would shadow the shop's own basket, and it would
+    // read as our bug rather than as a name somebody chose.
+    const slugCheck = pageSlugAvailable(slug);
+    if (!slugCheck.ok) return { error: slugCheck.reason };
+
     // Blocks arrive as parallel arrays, in the order they appear on screen.
     const kinds = form.getAll("blockKind").map(String);
     const headings = form.getAll("blockHeading").map(String);
@@ -187,8 +193,11 @@ export async function action({ request, context }: Route.ActionArgs) {
 
   if (intent === "new") {
     const wanted = String(form.get("pageSlug") ?? "").trim().toLowerCase();
-    if (!/^[a-z0-9][a-z0-9-]{0,48}$/.test(wanted)) {
-      return { error: "Use letters, numbers, and hyphens for the address." };
+    // The same guard the save path uses. Two copies of this rule is how one of
+    // them ends up not knowing about "basket".
+    const check = pageSlugAvailable(wanted);
+    if (!wanted || !check.ok) {
+      return { error: check.reason ?? "Give the page an address." };
     }
     const clash = await first<{ id: string }>(
       env.DB,

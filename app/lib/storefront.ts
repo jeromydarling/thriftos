@@ -260,6 +260,7 @@ export async function loadStorefrontPage(
     .filter(Boolean);
 
   const data: PageData = {
+    base: shop.base,
     shopName: shop.name,
     tagline: kit.tagline,
     addressLines,
@@ -323,5 +324,72 @@ export async function loadStorefrontPage(
         `Second-hand goods at ${shop.name}. Everything is one of a kind.`,
     },
     isDraft: Boolean(page && page.status !== "published"),
+  };
+}
+
+/* ─── Chrome for the shop's own pages ────────────────────────────────────── */
+
+export interface ShopChrome {
+  shop: ResolvedShop;
+  kit: BrandKit;
+  palette: ReturnType<typeof renderPalette>;
+  fonts: { display: string; body: string };
+  nav: { slug: string; label: string }[];
+  /** False when the shop hasn't switched selling on, or Stripe isn't connected. */
+  sellingOnline: boolean;
+  pickupEnabled: boolean;
+  pickupInstructions: string;
+}
+
+/**
+ * Everything a shop page that isn't a CMS page needs: the item page, the
+ * basket, the checkout, the order confirmation.
+ *
+ * Separate from loadStorefrontPage because those pages have no blocks and
+ * shouldn't pay for a featured-stock query or an impact rollup to render a
+ * basket. They do need the shop's brand, so the basket looks like the shop
+ * rather than like us.
+ */
+export async function loadShopChrome(
+  db: D1Database,
+  shop: ResolvedShop
+): Promise<ShopChrome> {
+  const [kitRow, org, navPages, account] = await Promise.all([
+    first<{ kit_json: string }>(db, `SELECT kit_json FROM brand_kits WHERE org_id = ?`, shop.orgId),
+    first<{ settings_json: string }>(
+      db,
+      `SELECT settings_json FROM orgs WHERE id = ?`,
+      shop.orgId
+    ),
+    all<{ slug: string; nav_label: string | null; title: string }>(
+      db,
+      `SELECT slug, nav_label, title FROM site_pages
+        WHERE org_id = ? AND status = 'published' AND nav_order IS NOT NULL
+        ORDER BY nav_order, title`,
+      shop.orgId
+    ),
+    first<{ charges_enabled: number }>(
+      db,
+      `SELECT charges_enabled FROM stripe_accounts WHERE org_id = ?`,
+      shop.orgId
+    ),
+  ]);
+
+  const kit = parseBrandKit(kitRow?.kit_json);
+  const type = typefaceFor(kit);
+  const settings = parseOrgSettings(org?.settings_json);
+
+  return {
+    shop,
+    kit,
+    palette: renderPalette(kit),
+    fonts: { display: type.display, body: type.body },
+    nav: navPages.map((p) => ({ slug: p.slug, label: p.nav_label || p.title })),
+    // Both, not either. A shop can switch selling on before finishing Stripe,
+    // and a buy button that leads to "this shop can't take payments" is worse
+    // than no buy button.
+    sellingOnline: settings.onlineSelling && Number(account?.charges_enabled ?? 0) === 1,
+    pickupEnabled: settings.pickupEnabled,
+    pickupInstructions: settings.pickupInstructions,
   };
 }

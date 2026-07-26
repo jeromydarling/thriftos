@@ -14,6 +14,8 @@ import type { Block } from "../lib/site";
 import type { RenderPalette } from "../lib/brand";
 
 export interface PageData {
+  /** The shop's path prefix, so a card can link to /{shop}/item/{id}. */
+  base: string;
   shopName: string;
   tagline: string;
   addressLines: string[];
@@ -194,9 +196,12 @@ function BlockView({
             {data.featured.map((item) => (
               <li
                 key={item.id}
-                className="overflow-hidden rounded-2xl border"
+                className="overflow-hidden rounded-2xl border transition hover:shadow-md"
                 style={{ borderColor: `${palette.primary}22`, background: "#fff" }}
               >
+                {/* The whole card is the link. A shopper on a phone aiming at a
+                    small title is a shopper who doesn't reach the item. */}
+                <a href={`${data.base}/item/${item.id}`} className="block">
                 {item.photoKey ? (
                   <img
                     src={`/api/media/${item.photoKey}?w=600`}
@@ -225,6 +230,7 @@ function BlockView({
                     ) : null}
                   </p>
                 </div>
+                </a>
               </li>
             ))}
           </ul>

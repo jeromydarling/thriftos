@@ -19,9 +19,15 @@ describe("settings round-trip", () => {
       donationHours: "Tue–Fri until 4",
       accepted: "Clothing\nBooks",
       notAccepted: "Mattresses",
+      onlineSelling: true,
+      pickupEnabled: false,
+      pickupInstructions: "Ask at the counter",
     });
 
     expect(parseOrgSettings(written)).toEqual({
+      onlineSelling: true,
+      pickupEnabled: false,
+      pickupInstructions: "Ask at the counter",
       taxRateBps: 700,
       roundUpEnabled: false,
       openingHours: "Tue–Sat 10–5",
@@ -124,5 +130,23 @@ describe("the website fields", () => {
     const s = parseOrgSettings(JSON.stringify({ accepted: ["Clothing"], openingHours: 42 }));
     expect(s.accepted).toBe("");
     expect(s.openingHours).toBe("");
+  });
+});
+
+describe("selling online", () => {
+  it("is off until a shop turns it on", () => {
+    // A shop that has never thought about postage or packing should not
+    // discover it has a checkout because we shipped one.
+    expect(parseOrgSettings("{}").onlineSelling).toBe(false);
+    expect(parseOrgSettings(JSON.stringify({ onlineSelling: "yes" })).onlineSelling).toBe(false);
+    expect(parseOrgSettings(JSON.stringify({ onlineSelling: 1 })).onlineSelling).toBe(false);
+    expect(parseOrgSettings(JSON.stringify({ onlineSelling: true })).onlineSelling).toBe(true);
+  });
+
+  it("offers collection unless a shop says otherwise", () => {
+    // Collection needs no packing, no postage, and nothing can go astray in
+    // the post. Turning selling on and getting nothing would be a puzzle.
+    expect(parseOrgSettings("{}").pickupEnabled).toBe(true);
+    expect(parseOrgSettings(JSON.stringify({ pickupEnabled: false })).pickupEnabled).toBe(false);
   });
 });

@@ -238,6 +238,48 @@ export async function slugAvailable(
 }
 
 /** Turn a shop name into a usable slug. Not authoritative — just a start. */
+/**
+ * Page addresses a shop may not take, because the shop itself uses them.
+ *
+ * A shop's pages live at /{shop}/{page}, and so does its basket. Without this,
+ * a shop could publish a page called "basket" and quietly shadow the one thing
+ * on the site that takes money — and it would look like a bug in our software
+ * rather than a name they chose.
+ *
+ * The same reasoning as reserved_slugs at the top level, one directory down.
+ */
+export const RESERVED_PAGE_SLUGS: readonly string[] = [
+  "item",
+  "basket",
+  "cart",
+  "checkout",
+  "order",
+  "orders",
+  "feed.xml",
+];
+
+export function pageSlugAvailable(slug: string): { ok: boolean; reason: string | null } {
+  const clean = slug.trim().toLowerCase();
+  // The front page. Always allowed — it is how a shop's home page is stored.
+  if (clean === "") return { ok: true, reason: null };
+
+  if (!/^[a-z0-9][a-z0-9-]{0,48}$/.test(clean)) {
+    return {
+      ok: false,
+      reason: "Use letters, numbers and hyphens, starting with a letter or number.",
+    };
+  }
+
+  if (RESERVED_PAGE_SLUGS.includes(clean)) {
+    return {
+      ok: false,
+      reason: `"${clean}" is used by your shop's own pages — pick another address.`,
+    };
+  }
+
+  return { ok: true, reason: null };
+}
+
 export function suggestSlug(name: string): string {
   return (
     name

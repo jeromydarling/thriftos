@@ -57,6 +57,15 @@ export default [
   route("sitemap.xml", "routes/sitemap.ts"),
   route("llms.txt", "routes/llms.ts"),
 
+  // The shop's own shopfront. Declared before the catch-all below, because
+  // `:slug/:page` would otherwise swallow /{shop}/basket and serve it as a CMS
+  // page. `RESERVED_PAGE_SLUGS` stops a shop publishing a page at one of these
+  // addresses from the other direction.
+  route(":slug/item/:itemId", "routes/shop.item.tsx"),
+  route(":slug/basket", "routes/shop.basket.tsx"),
+  route(":slug/checkout", "routes/shop.checkout.tsx"),
+  route(":slug/order/:orderId", "routes/shop.order.tsx"),
+
   // A shop's own page, at the root of the path namespace: thriftos.app/{shop}.
   //
   // Declared last on purpose. Every system route above wins the match first,

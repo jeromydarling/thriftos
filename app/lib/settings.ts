@@ -36,6 +36,18 @@ export interface OrgSettings {
   accepted: string;
   /** What it can't, one per line. Saves a volunteer the same conversation daily. */
   notAccepted: string;
+
+  /**
+   * Whether the shop sells online at all.
+   *
+   * Off until a shop turns it on. A shop that has never thought about postage
+   * or packing should not discover it has a checkout because we shipped one.
+   */
+  onlineSelling: boolean;
+  /** Whether shoppers can pay online and collect in the shop. */
+  pickupEnabled: boolean;
+  /** Where to come, and when. Shown after an order is placed and on the receipt. */
+  pickupInstructions: string;
 }
 
 export const DEFAULT_SETTINGS: OrgSettings = {
@@ -49,6 +61,12 @@ export const DEFAULT_SETTINGS: OrgSettings = {
   donationHours: "",
   accepted: "",
   notAccepted: "",
+  onlineSelling: false,
+  // On by default *when selling is on*, because collection is the one thing a
+  // thrift shop can offer with no packing, no postage and no risk of a parcel
+  // going astray. Turning selling on and getting nothing would be a puzzle.
+  pickupEnabled: true,
+  pickupInstructions: "",
 };
 
 function num(value: unknown, fallback: number): number {
@@ -89,6 +107,9 @@ export function parseOrgSettings(json: string | null | undefined): OrgSettings {
     donationHours: text(raw.donationHours),
     accepted: text(raw.accepted),
     notAccepted: text(raw.notAccepted),
+    onlineSelling: raw.onlineSelling === true,
+    pickupEnabled: raw.pickupEnabled !== false,
+    pickupInstructions: text(raw.pickupInstructions),
   };
 }
 

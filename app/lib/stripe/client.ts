@@ -189,6 +189,18 @@ export interface StripeReadiness {
  * it is taking cards but isn't is far worse off than one told plainly that
  * payments aren't switched on yet.
  */
+/**
+ * The Stripe credentials, from the environment.
+ *
+ * Exported so there is one of these rather than a private one-liner per file
+ * that calls Stripe — which is how one of them ends up reading a different
+ * variable, or forgetting the non-null assertion, and failing only in
+ * production where the key is actually set.
+ */
+export function stripeConfigFrom(env: { STRIPE_SECRET_KEY?: string }): StripeConfig {
+  return { secretKey: env.STRIPE_SECRET_KEY ?? "" };
+}
+
 export function stripeReadiness(env: {
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;

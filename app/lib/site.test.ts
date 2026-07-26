@@ -1,6 +1,14 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { BLOCKS, DEFAULT_HOME, parseBlocks, serialiseBlocks, suggestSlug } from "./site";
+import {
+  BLOCKS,
+  DEFAULT_HOME,
+  RESERVED_PAGE_SLUGS,
+  pageSlugAvailable,
+  parseBlocks,
+  serialiseBlocks,
+  suggestSlug,
+} from "./site";
 
 /**
  * The reserved-slug list, read from the migrations rather than duplicated.
@@ -164,5 +172,46 @@ describe("blocks", () => {
   it("marks a block live only if it reads records", () => {
     const staticKinds = BLOCKS.filter((b) => !b.live).map((b) => b.kind);
     expect(staticKinds).toEqual(["intro", "text"]);
+  });
+});
+
+describe("page addresses a shop may not take", () => {
+  it("refuses the ones the shop's own pages use", () => {
+    // A page called "basket" would shadow the one thing on the site that takes
+    // money, and it would read as our bug rather than a name somebody chose.
+    for (const slug of RESERVED_PAGE_SLUGS) {
+      const check = pageSlugAvailable(slug);
+      expect(check.ok, slug).toBe(false);
+      expect(check.reason, slug).toBeTruthy();
+    }
+  });
+
+  it("allows the front page, which has no address at all", () => {
+    expect(pageSlugAvailable("").ok).toBe(true);
+  });
+
+  it("allows the pages a shop actually wants", () => {
+    for (const slug of ["about", "donate", "find-us", "our-story", "volunteering"]) {
+      expect(pageSlugAvailable(slug).ok, slug).toBe(true);
+    }
+  });
+
+  it("refuses an address that isn't one", () => {
+    for (const slug of ["Basket", "-leading", "with space", "with/slash", "..", "with?query"]) {
+      expect(pageSlugAvailable(slug).ok, slug).toBe(false);
+    }
+  });
+
+  it("reserves every segment the shop routes actually claim", () => {
+    // Read from the router rather than trusted, so a new /{shop}/thing route
+    // that nobody reserved fails here instead of in a shop's face.
+    const routes = readFileSync("app/routes.ts", "utf8");
+    const claimed = [...routes.matchAll(/route\("\:slug\/([a-z0-9.]+)/g)].map((m) => m[1]);
+    expect(claimed.length).toBeGreaterThan(0);
+    for (const segment of claimed) {
+      expect(RESERVED_PAGE_SLUGS, `/{shop}/${segment} is a route but isn't reserved`).toContain(
+        segment
+      );
+    }
   });
 });

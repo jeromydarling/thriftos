@@ -15,7 +15,7 @@ import { all, first, run } from "../lib/db";
 import { getUser, roleAtLeast } from "../lib/auth";
 import { newId, newToken } from "../lib/ids";
 import type { AppEnv } from "../lib/env";
-import { StripeError } from "../lib/stripe/client";
+import { StripeError, stripeConfigFrom } from "../lib/stripe/client";
 import {
   cancelPaymentIntent,
   cancelReaderAction,
@@ -94,9 +94,8 @@ async function authLimited(
   return { error: null, user };
 }
 
-function config(env: AppEnv) {
-  return { secretKey: env.STRIPE_SECRET_KEY! };
-}
+/** Kept as a local alias so the many call sites below stay short. */
+const config = stripeConfigFrom;
 
 /* ─── Server-side cart pricing ──────────────────────────────────────────── */
 

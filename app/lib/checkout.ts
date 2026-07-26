@@ -89,8 +89,10 @@ export async function beginCheckout(
     buyer: Buyer;
     connectedAccountId: string;
     shopName: string;
-    successUrl: string;
-    cancelUrl: string;
+    /** Scheme and host, e.g. https://thriftos.app — no trailing slash. */
+    origin: string;
+    /** The shop's path prefix: "/mill-road-thrift", or "" on a custom domain. */
+    basePath: string;
   }
 ): Promise<CheckoutResult> {
   const problem = validBuyer(opts.buyer, opts.method);
@@ -267,8 +269,12 @@ export async function beginCheckout(
         transactionId: txId,
         orgId: opts.orgId,
         shopName: opts.shopName,
-        successUrl: opts.successUrl,
-        cancelUrl: opts.cancelUrl,
+        // Built here because the order id doesn't exist until this function
+        // has written it, and Stripe only substitutes its own session id.
+        // Handing the confirmation page our id means it never has to trust
+        // anything the browser carries back from Stripe.
+        successUrl: `${opts.origin}${opts.basePath}/order/${txId}`,
+        cancelUrl: `${opts.origin}${opts.basePath}/basket`,
         customerEmail: opts.buyer.email.trim().toLowerCase(),
         // Stripe's minimum session life is thirty minutes, and the hold behind
         // it is deliberately longer. A session that outlived its hold would let
