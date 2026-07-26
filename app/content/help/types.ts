@@ -21,6 +21,7 @@ export type HelpCategoryId =
   | "volunteers"
   | "reporting"
   | "nri"
+  | "brand"
   | "admin"
   | "migrating";
 
@@ -92,6 +93,12 @@ export const HELP_CATEGORIES: readonly HelpCategory[] = [
     title: "The Compass (NRI)",
     blurb: "What it notices, why, and how to make it useful rather than noise.",
     glyph: "✳",
+  },
+  {
+    id: "brand",
+    title: "Brand, signage & website",
+    blurb: "Your colours and voice, printable signs built from your own numbers, your public pages, and using your own domain.",
+    glyph: "◐",
   },
   {
     id: "admin",

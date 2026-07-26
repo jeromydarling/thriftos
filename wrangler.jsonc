@@ -14,7 +14,7 @@
   "vars": {
     "APP_NAME": "ThriftOS",
     "APP_URL": "https://thriftos.jeromydarling.workers.dev",
-    "DEMO_ORG_SLUG": "demo"
+    "DEMO_ORG_SLUG": "second-chances"
   },
 
   "d1_databases": [
@@ -39,6 +39,10 @@
       "id": "e02bf163f64242588f0a1c2b71947037"
     }
   ],
+
+  "ai": {
+    "binding": "AI"
+  },
 
   "images": {
     "binding": "IMAGES"

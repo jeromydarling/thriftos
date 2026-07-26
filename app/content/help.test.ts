@@ -60,6 +60,8 @@ describe("help registry integrity", () => {
       "/app/impact",
       "/app/settings",
       "/app/help",
+      "/app/studio",
+      "/app/site",
     ]);
 
     for (const article of HELP_ARTICLES) {
@@ -98,6 +100,8 @@ describe("help registry integrity", () => {
     expect(articlesIn("payments").length).toBeGreaterThanOrEqual(4);
     expect(articlesIn("getting-started").length).toBeGreaterThanOrEqual(2);
     expect(articlesIn("migrating").length).toBeGreaterThanOrEqual(1);
+    // A shop building its brand and its website should not have to guess.
+    expect(articlesIn("brand").length).toBeGreaterThanOrEqual(3);
   });
 
   it("lists no empty category on the index", () => {
@@ -161,6 +165,14 @@ describe("contextual help", () => {
 
   it("returns an empty list rather than everything for an unknown screen", () => {
     expect(articlesForPath("/app/nonexistent")).toEqual([]);
+  });
+
+  it("covers the screens a shop opens without knowing what they do", () => {
+    // Studio and Website are the two screens with no equivalent in the till
+    // system a shop is coming from, so contextual help matters most there.
+    for (const path of ["/app/studio", "/app/site"]) {
+      expect(articlesForPath(path).length, path).toBeGreaterThan(0);
+    }
   });
 });
 

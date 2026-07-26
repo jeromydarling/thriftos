@@ -17,6 +17,7 @@ import { advanceAttempt, staleAttempts } from "../lib/attempts";
 import { applyInventoryEffect, type PaymentState } from "../lib/payments";
 import { getPaymentIntent, stateForIntent } from "../lib/stripe/terminal";
 import { sweepAlerts } from "../lib/alerts";
+import { pendingDomains, refreshDomain } from "../lib/domains";
 
 async function record(
   db: D1Database,
@@ -131,6 +132,28 @@ export async function runDaily(env: AppEnv): Promise<void> {
 
     return { swept: stale.length, released, recovered };
   });
+
+  // Chase domains still waiting on DNS.
+  //
+  // A shop that added a CNAME on Tuesday evening shouldn't have to come back
+  // and press a button to find out it worked. Skipped entirely when Cloudflare
+  // for SaaS isn't configured, rather than logging a failure every night.
+  if (env.CLOUDFLARE_API_TOKEN && env.CLOUDFLARE_ZONE_ID) {
+    await record(db, "domain_check", async () => {
+      const config = {
+        apiToken: env.CLOUDFLARE_API_TOKEN!,
+        zoneId: env.CLOUDFLARE_ZONE_ID!,
+        cnameTarget: (env.APP_URL ?? "").replace(/^https?:\/\//, ""),
+      };
+      const waiting = await pendingDomains(db);
+      let live = 0;
+      for (const domain of waiting) {
+        const fresh = await refreshDomain(db, config, domain);
+        if (fresh.status === "active") live++;
+      }
+      return { checked: waiting.length, went_live: live };
+    });
+  }
 
   // Anything that needs a person. Runs last, so it sees the state the other
   // jobs left behind rather than the state they started from.

@@ -49,6 +49,7 @@ const NAV = [
   { to: "/app/drawer", label: "Drawer" },
   { to: "/app/money", label: "Money" },
   { to: "/app/studio", label: "Studio" },
+  { to: "/app/site", label: "Website" },
   { to: "/app/impact", label: "Impact" },
   { to: "/app/settings", label: "Settings" },
 ];

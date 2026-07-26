@@ -43,6 +43,9 @@ export const ID_PREFIX = {
   refund: "rf",
   dispute: "dp",
   alert: "ax",
+  sitePage: "sp",
+  customDomain: "cd",
+  brandAsset: "ba",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIX;

@@ -18,6 +18,9 @@ export interface AppEnv extends Env {
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
   SENTRY_DSN?: string;
+  /** Cloudflare for SaaS, for shops using their own domain. */
+  CLOUDFLARE_API_TOKEN?: string;
+  CLOUDFLARE_ZONE_ID?: string;
 }
 
 export type IntegrationKey = "stripe" | "email" | "ai" | "images";

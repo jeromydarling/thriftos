@@ -36,6 +36,8 @@ export default [
     route("sales/:id", "routes/app.sale.tsx"),
     route("export", "routes/app.export.tsx"),
     route("studio", "routes/app.studio.tsx"),
+    route("site", "routes/app.site.tsx"),
+    route("domains", "routes/app.domains.tsx"),
     route("inventory", "routes/app.inventory.tsx"),
     route("register", "routes/app.register.tsx"),
     route("people", "routes/app.people.tsx"),
