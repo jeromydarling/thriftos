@@ -12,6 +12,8 @@ import { cloudflareContext } from "./cf-context";
 export interface AppEnv extends Env {
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
+  /** Optional: a separate signing secret for the Connect endpoint. */
+  STRIPE_CONNECT_WEBHOOK_SECRET?: string;
   STRIPE_PUBLISHABLE_KEY?: string;
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
@@ -35,10 +37,13 @@ export function integrationStatus(env: AppEnv): IntegrationStatus[] {
     {
       key: "stripe",
       label: "Card payments & payouts",
-      live: Boolean(env.STRIPE_SECRET_KEY),
+      // Both are needed: without the webhook secret we could take a payment and
+      // never hear that it succeeded, which is worse than not taking it.
+      live: Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET),
       fallback:
         "Cash and 'other' tenders work normally. Card sales are recorded but not charged.",
-      activate: "npx wrangler secret put STRIPE_SECRET_KEY",
+      activate:
+        "npx wrangler secret put STRIPE_SECRET_KEY && npx wrangler secret put STRIPE_WEBHOOK_SECRET",
     },
     {
       key: "email",

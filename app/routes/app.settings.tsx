@@ -8,6 +8,9 @@ import { TRUST_BOUNDARIES } from "../lib/nri/voice";
 import { formatBps, getPlan, PLANS } from "../lib/pricing";
 import { feeCapVolumeCents, maxMonthlyCostCents } from "../lib/savings";
 import { Badge, Button, Card, Field, Input, Notice, money } from "../components/ui";
+import { ConnectPanel } from "../components/ConnectPanel";
+import { canAcceptPayments, getAccount, statusExplanation } from "../lib/stripe/connect";
+import { isTestMode, stripeReadiness } from "../lib/stripe/client";
 
 export function meta() {
   return [{ title: "Settings | ThriftOS" }];
@@ -62,7 +65,33 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 
   const settings = parseSettings(org?.settings_json);
 
+  // Rendered server-side so the panel is truthful on first paint rather than
+  // flashing "not connected" while a fetch resolves.
+  const connectRecord = await getAccount(env.DB, user.orgId);
+  const readiness = stripeReadiness(env);
+  const connectStatus = connectRecord?.status ?? "not_started";
+
   return {
+    connect: {
+      configured: readiness.configured,
+      missingSecrets: readiness.missing,
+      status: connectStatus,
+      explanation: statusExplanation(connectStatus),
+      canAcceptPayments: canAcceptPayments(connectRecord),
+      account: connectRecord
+        ? {
+            stripeAccountId: connectRecord.stripeAccountId,
+            chargesEnabled: connectRecord.chargesEnabled,
+            payoutsEnabled: connectRecord.payoutsEnabled,
+            detailsSubmitted: connectRecord.detailsSubmitted,
+            disabledReason: connectRecord.disabledReason,
+            currentlyDue: connectRecord.currentlyDue,
+            eventuallyDue: connectRecord.eventuallyDue,
+            lastSyncedAt: connectRecord.lastSyncedAt,
+          }
+        : null,
+    },
+    testMode: isTestMode(env.STRIPE_SECRET_KEY),
     org,
     rules,
     settings: {
@@ -141,7 +170,8 @@ export async function action({ request, context }: Route.ActionArgs) {
 }
 
 export default function Settings({ loaderData }: Route.ComponentProps) {
-  const { org, rules, settings, integrations, role, salesThisMonth, aiUsed } = loaderData;
+  const { org, rules, settings, integrations, role, salesThisMonth, aiUsed, connect, testMode } =
+    loaderData;
   const navigation = useNavigation();
   const busy = navigation.state === "submitting";
   const canEdit = role === "owner" || role === "admin";
@@ -301,6 +331,10 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
           ) : null}
         </Form>
       </Card>
+
+      <div id="payments" className="scroll-mt-8">
+        <ConnectPanel initial={connect} testMode={testMode} />
+      </div>
 
       <Card>
         <h2 className="font-display text-lg text-bark">Your plan</h2>

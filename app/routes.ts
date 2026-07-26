@@ -31,6 +31,10 @@ export default [
     route("settings", "routes/app.settings.tsx"),
   ]),
 
+  // Stripe Connect onboarding round-trip
+  route("stripe/connect/return", "routes/stripe.return.tsx"),
+  route("stripe/connect/refresh", "routes/stripe.refresh.tsx"),
+
   // Machine-readable surfaces
   route("robots.txt", "routes/robots.ts"),
   route("sitemap.xml", "routes/sitemap.ts"),

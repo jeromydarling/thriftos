@@ -16,6 +16,7 @@ import { suppress } from "../lib/email";
 import { toCsv } from "../lib/impact";
 import type { AppEnv } from "../lib/env";
 import { scoreSpam } from "../lib/spam";
+import { connect } from "./connect";
 import { resolvePlanId } from "../lib/pricing";
 import { quotePlatformFee, recordFeeAccrual } from "../lib/fees";
 import {
@@ -523,5 +524,8 @@ api.get("/api/v1/items", async (c) => {
 
   return json({ items: rows, count: rows.length });
 });
+
+// Connect onboarding and the Stripe webhook. Mounted before the catch-all.
+api.route("/", connect);
 
 api.all("/api/*", (c) => json({ error: "Not found" }, 404));
