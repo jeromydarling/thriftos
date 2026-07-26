@@ -31,6 +31,7 @@ import { record, saleEntries } from "../ledger";
 import { recordFeeAccrual, resolveFeePolicy } from "../fees";
 import { settleRefund, upsertDispute } from "../refunds";
 import { raise, resolve } from "../alerts";
+import { log, newRequestId } from "../log";
 import { stateForIntent, type StripePaymentIntent } from "./terminal";
 import {
   deriveStatus,
@@ -147,9 +148,22 @@ export async function handleWebhook(
     };
   }
 
+  const requestId = newRequestId();
+  const started = Date.now();
+
   try {
     const detail = await dispatch(db, event, opts.config);
     await markEvent(db, event.id, "processed");
+
+    log.info("stripe event processed", {
+      requestId,
+      eventType: event.type,
+      stripeObjectId: event.id,
+      connectedAccountId: event.account,
+      outcome: detail,
+      durationMs: Date.now() - started,
+    });
+
     return {
       status: 200,
       result: { outcome: "processed", eventId: event.id, eventType: event.type, detail },
@@ -157,6 +171,16 @@ export async function handleWebhook(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await markEvent(db, event.id, "failed", message);
+
+    log.error("stripe event failed", {
+      requestId,
+      eventType: event.type,
+      stripeObjectId: event.id,
+      connectedAccountId: event.account,
+      outcome: "failed",
+      durationMs: Date.now() - started,
+      error: message,
+    });
 
     // Raised here, not left for the nightly sweep. A payment that failed to
     // record at 2pm should be visible at 2pm, not tomorrow morning.
@@ -297,6 +321,16 @@ async function handlePaymentIntent(
   // Sold on success, released on failure or cancellation. This is rule 12 of
   // the build brief: inventory follows the payment, never the request.
   await applyInventoryEffect(db, attempt.org_id, attempt.transaction_id, state);
+
+  log.info("payment reached a terminal state", {
+    orgId: attempt.org_id,
+    transactionId: attempt.transaction_id,
+    attemptId: attempt.id,
+    stripeObjectId: intent.id,
+    transition: `→${state}`,
+    amountCents: intent.amount,
+    outcome: state,
+  });
 
   if (state !== "succeeded") return `attempt ${state}`;
 

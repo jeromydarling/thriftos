@@ -55,6 +55,9 @@ code, these are the invariants you are working around.
    only; `isOfflineEligible()` returns false for `terminal` unconditionally.
 8. **Refunds return our fee proportionally.** Stripe does not do this
    automatically. `refund_application_fee` is set on every card refund.
+9. **The register never switches off.** Neither does cash checkout, card
+   checkout, receipts, or data export — in any billing state, including
+   canceled. See `app/lib/entitlements.ts`.
 
 ## What the money looks like end to end
 
@@ -127,6 +130,48 @@ The service worker (`public/sw.js`) caches the register *shell* only. It never
 caches `/api/` responses — a stale price undercharges, and a stale payment
 status would tell a cashier a declined card went through.
 
+## Receipts
+
+Every sale mints an unguessable token at creation and is readable at
+`/r/<token>` with no login, because a shopper doesn't have an account. The
+register offers print or email the moment a sale completes.
+
+This is not a nicety. **A chargeback is answered with a receipt** — "compelling
+evidence" is largely a document showing what was sold, when, and for how much,
+and a merchant who can't produce one loses by default. The dispute alert links
+straight to the sale page, where the receipt is one button.
+
+Receipts are built from the `transaction_items` snapshot, so re-pricing or
+renaming an item later cannot alter a receipt somebody already holds.
+
+## Alerts
+
+Everything that needs a person raises a row in `alerts`, surfaced as a banner
+(critical) or on the dashboard (warning):
+
+| Kind | Raised when | Severity |
+|---|---|---|
+| `dispute_deadline` | Evidence due within 7 days / within 2 days | warning → critical |
+| `webhook_failed` | A handler threw — raised immediately, not nightly | critical |
+| `payment_stranded` | Attempts in flight over 2 hours, holding inventory | warning |
+| `connect_disabled` | Account restricted, disabled, or requirements due | critical |
+| `payout_failed` | Stripe couldn't reach the bank | critical |
+
+Deduped by `(kind, dedupe_key)`, so a nightly sweep can't pile up. Nothing
+auto-clears except when the condition genuinely goes away — replaying a fixed
+event resolves its alert. Acknowledging stops the interruption but keeps the
+row.
+
+## Logging
+
+`app/lib/log.ts`. One JSON object per line with `requestId`, `orgId`,
+`transactionId`, `attemptId`, `stripeObjectId`, `idempotencyKey`, and
+`transition`, so searching one transaction id returns the whole story.
+
+Fields are on an allowlist and every string value passes `redact()`, which
+strips Stripe secrets, anything resembling a card number, and email addresses.
+A log that leaks is worse than no log.
+
 ## Reports
 
 **Store-facing** (`storeReport()`): gross sales, refunds, tax, round-ups,
@@ -190,6 +235,8 @@ prefix so nobody mistakes a test shop for a live one.
 - [ ] Partial refund leaves the sale `partially_refunded`
 - [ ] Dispute marks the sale `disputed` and does **not** restock
 - [ ] Cash sale carries no platform fee
+- [ ] A receipt renders at `/r/<token>` with no session, and 404s on a bad token
+- [ ] A suspended shop can still ring up a sale and export its data
 - [ ] Offline: cash queues and syncs; card is refused with an explanation
 - [ ] Replaying an offline queue twice creates one sale
 - [ ] Drawer opens, records a pay-out, closes with a variance in the ledger
@@ -220,3 +267,15 @@ prefix so nobody mistakes a test shop for a live one.
 
 Never "fix" this by hand-editing a transaction row. Post a ledger entry, or
 replay the event. The history is the point.
+
+Faster route now that logging exists: search the logs for the transaction id.
+Every step from the quote to the ledger write carries it, so the line where the
+story stops is the step that failed.
+
+## What is still unverified
+
+**Terminal has never run against live Stripe.** Charge construction, the
+guards, state mapping, webhook handling, and refund arithmetic are covered by
+unit tests, but no simulated reader has ever taken a payment in this codebase.
+The go-live checklist above is not a formality — the first real tap is the
+first real test of that path.

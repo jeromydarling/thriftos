@@ -9,6 +9,8 @@
  * than trusted from the client.
  */
 import { Hono } from "hono";
+import { bindLog, newRequestId } from "../lib/log";
+import { LIMITS, rateLimit, recordAttempt } from "../lib/ratelimit";
 import { all, first, run } from "../lib/db";
 import { getUser, roleAtLeast } from "../lib/auth";
 import { newId, newToken } from "../lib/ids";
@@ -55,6 +57,40 @@ const json = (data: unknown, status = 200) =>
 async function auth(c: { req: { raw: Request }; env: AppEnv }) {
   const user = await getUser(c.req.raw, c.env.DB);
   if (!user) return { error: json({ error: "Please sign in first." }, 401), user: null };
+  return { error: null, user };
+}
+
+/**
+ * Auth, plus a ceiling on how fast one shop can move money.
+ *
+ * Not because a thrift store will hammer this — a busy Saturday is a few
+ * hundred sales — but because a runaway retry loop in a browser tab left open
+ * on a counter can, and a loop that creates PaymentIntents is a loop that
+ * costs somebody money.
+ */
+async function authLimited(
+  c: { req: { raw: Request }; env: AppEnv },
+  bucket: keyof typeof LIMITS = "api"
+) {
+  const { error, user } = await auth(c);
+  if (error) return { error, user: null };
+
+  const key = `money:${user!.orgId}`;
+  const limit = await rateLimit(c.env.KV, key, LIMITS[bucket]);
+  if (!limit.allowed) {
+    return {
+      error: json(
+        {
+          error:
+            "That's a lot of requests very quickly. Give it a moment — if this keeps happening, something is stuck in a loop rather than you being fast.",
+          retryAfter: limit.retryAfterSeconds,
+        },
+        429
+      ),
+      user: null,
+    };
+  }
+  await recordAttempt(c.env.KV, key, LIMITS[bucket]);
   return { error: null, user };
 }
 
@@ -229,7 +265,7 @@ pos.post("/api/pos/quote", async (c) => {
  * stay reserved rather than sold until it does.
  */
 pos.post("/api/pos/terminal/pay", async (c) => {
-  const { error, user } = await auth(c);
+  const { error, user } = await authLimited(c);
   if (error) return error;
 
   if (!c.env.STRIPE_SECRET_KEY) {
@@ -364,6 +400,15 @@ pos.post("/api/pos/terminal/pay", async (c) => {
     );
   }
 
+  const logger = bindLog({
+    requestId: newRequestId(),
+    orgId: user!.orgId,
+    userId: user!.id,
+    transactionId: txId,
+    connectedAccountId: account.stripeAccountId,
+    readerId: body.readerId,
+  });
+
   const { attempt } = await openAttempt(c.env.DB, {
     orgId: user!.orgId,
     transactionId: txId,
@@ -401,6 +446,15 @@ pos.post("/api/pos/terminal/pay", async (c) => {
       paymentIntentId: intent.id,
     });
 
+    logger.info("card payment sent to reader", {
+      attemptId: attempt.id,
+      stripeObjectId: intent.id,
+      idempotencyKey: attempt.idempotency_key,
+      amountCents: cart.totalCents,
+      feeCents: quote.platformFeeCents,
+      transition: "draft→awaiting_reader",
+    });
+
     await run(
       c.env.DB,
       `UPDATE transactions SET payment_state = 'awaiting_reader', stripe_payment_intent_id = ?
@@ -423,6 +477,13 @@ pos.post("/api/pos/terminal/pay", async (c) => {
     // than leaving them held by a payment that will never happen.
     const message =
       err instanceof StripeError ? err.message : "We couldn't start the payment.";
+    logger.error("could not start card payment", {
+      attemptId: attempt.id,
+      idempotencyKey: attempt.idempotency_key,
+      amountCents: cart.totalCents,
+      outcome: "failed",
+      error: message,
+    });
     await advanceAttempt(c.env.DB, user!.orgId, attempt.id, {
       state: "failed",
       failureMessage: message,
@@ -504,7 +565,7 @@ pos.get("/api/pos/terminal/status/:transactionId", async (c) => {
 
 /** The customer changed their mind while the reader was waiting. */
 pos.post("/api/pos/terminal/cancel", async (c) => {
-  const { error, user } = await auth(c);
+  const { error, user } = await authLimited(c);
   if (error) return error;
   if (!c.env.STRIPE_SECRET_KEY) return json({ error: "Stripe isn't configured." }, 503);
 
@@ -655,7 +716,7 @@ pos.post("/api/pos/refunds/preview", async (c) => {
  * because it shouldn't be one mis-tap away for someone whose job is the floor.
  */
 pos.post("/api/pos/refunds", async (c) => {
-  const { error, user } = await auth(c);
+  const { error, user } = await authLimited(c);
   if (error) return error;
 
   if (!roleAtLeast(user!.role, "staff")) {
@@ -703,7 +764,7 @@ pos.get("/api/pos/disputes", async (c) => {
 /* ─── Cash drawer ───────────────────────────────────────────────────────── */
 
 pos.post("/api/pos/shift/open", async (c) => {
-  const { error, user } = await auth(c);
+  const { error, user } = await authLimited(c);
   if (error) return error;
 
   const body = (await c.req.json().catch(() => null)) as {
@@ -739,7 +800,7 @@ pos.get("/api/pos/shift/current", async (c) => {
 });
 
 pos.post("/api/pos/shift/movement", async (c) => {
-  const { error, user } = await auth(c);
+  const { error, user } = await authLimited(c);
   if (error) return error;
 
   const body = (await c.req.json().catch(() => null)) as {
@@ -767,7 +828,7 @@ pos.post("/api/pos/shift/movement", async (c) => {
 });
 
 pos.post("/api/pos/shift/close", async (c) => {
-  const { error, user } = await auth(c);
+  const { error, user } = await authLimited(c);
   if (error) return error;
 
   const body = (await c.req.json().catch(() => null)) as {
