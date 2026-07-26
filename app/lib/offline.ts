@@ -13,6 +13,9 @@ export interface QueuedLine {
   title: string;
   priceCents: number;
   retailEstimateCents?: number;
+  /** The tag price before the colour-tag markdown, so the receipt can say
+   *  what the shopper saved. Absent on manually-priced lines. */
+  listPriceCents?: number;
 }
 
 export interface QueuedSale {
@@ -87,6 +90,8 @@ export interface FlushResult {
   rejected: { offlineId: string; reason: string }[];
   /** Lines paid for but not fulfilled, usually a double-scanned unique item. */
   unfulfilled: number;
+  /** Public receipt links for the sales that just synced, newest last. */
+  receipts: { offlineId: string; transactionId: string; receiptUrl: string }[];
   error?: string;
 }
 
@@ -97,7 +102,7 @@ export interface FlushResult {
 export async function flush(): Promise<FlushResult> {
   const sales = await queued();
   if (sales.length === 0) {
-    return { synced: 0, duplicates: 0, remaining: 0, rejected: [], unfulfilled: 0 };
+    return { synced: 0, duplicates: 0, remaining: 0, rejected: [], unfulfilled: 0, receipts: [] };
   }
 
   try {
@@ -114,6 +119,7 @@ export async function flush(): Promise<FlushResult> {
         remaining: sales.length,
         rejected: [],
         unfulfilled: 0,
+        receipts: [],
         error: `Server said ${res.status}`,
       };
     }
@@ -123,6 +129,7 @@ export async function flush(): Promise<FlushResult> {
       duplicates: number;
       rejected?: { offlineId: string; reason: string }[];
       unfulfilled?: number;
+      receipts?: { offlineId: string; transactionId: string; receiptUrl: string }[];
     };
 
     const rejected = data.rejected ?? [];
@@ -141,6 +148,7 @@ export async function flush(): Promise<FlushResult> {
       remaining: (await queued()).length,
       rejected,
       unfulfilled: data.unfulfilled ?? 0,
+      receipts: data.receipts ?? [],
     };
   } catch (err) {
     return {
@@ -149,6 +157,7 @@ export async function flush(): Promise<FlushResult> {
       remaining: sales.length,
       rejected: [],
       unfulfilled: 0,
+      receipts: [],
       error: err instanceof Error ? err.message : "Couldn't reach the server",
     };
   }

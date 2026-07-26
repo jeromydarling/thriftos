@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Route } from "./+types/app.register";
 import { requireUser } from "../lib/auth";
-import { first, parseSettings } from "../lib/db";
+import { first } from "../lib/db";
 import { envFrom } from "../lib/env";
 import { Badge, Button, Card, Input, Notice, money } from "../components/ui";
 import { TAG_COLOR_HEX } from "../lib/markdown";
 import { enqueue, flush, newOfflineId, queued, type QueuedLine } from "../lib/offline";
+import { parseOrgSettings, taxCentsFor } from "../lib/settings";
 import { canAcceptPayments, getAccount } from "../lib/stripe/connect";
 import { orgReaders } from "../lib/stripe/terminal";
 
@@ -22,7 +23,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     `SELECT settings_json, name FROM orgs WHERE id = ?`,
     user.orgId
   );
-  const settings = parseSettings(org?.settings_json);
+  const settings = parseOrgSettings(org?.settings_json);
 
   // Readers are shown only if the shop can actually take a card. An account
   // still in onboarding would give a cashier a button that always fails.
@@ -31,9 +32,9 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 
   return {
     orgName: org?.name ?? "",
-    taxRateBps: Number(settings.taxRateBps ?? 0),
-    roundUpEnabled: settings.roundUpEnabled !== false,
-    roundUpCause: String(settings.roundUpCause ?? "our community programs"),
+    taxRateBps: settings.taxRateBps,
+    roundUpEnabled: settings.roundUpEnabled,
+    roundUpCause: settings.roundUpCause,
     stripeLive: Boolean(env.STRIPE_SECRET_KEY),
     cardReady,
     readers: cardReady ? await orgReaders(env.DB, user.orgId) : [],
@@ -80,6 +81,9 @@ export default function Register({ loaderData }: Route.ComponentProps) {
   const [phase, setPhase] = useState<TerminalPhase>("idle");
   const [terminalTx, setTerminalTx] = useState<string | null>(null);
   const [terminalError, setTerminalError] = useState<string | null>(null);
+  // The last completed sale, so the cashier can offer a receipt while the
+  // customer is still standing there. Cleared on the next sale.
+  const [lastReceipt, setLastReceipt] = useState<{ url: string; id: string } | null>(null);
 
   // Connection state drives the banner, not the behaviour: the register works
   // the same either way.
@@ -176,7 +180,9 @@ export default function Register({ loaderData }: Route.ComponentProps) {
   }
 
   const subtotal = cart.reduce((sum, line) => sum + line.priceCents, 0);
-  const tax = taxExempt ? 0 : Math.round((subtotal * taxRateBps) / 10_000);
+  // Same function the server uses to price a card sale, so the number on
+  // screen and the number charged cannot diverge.
+  const tax = taxCentsFor(subtotal, { taxRateBps, roundUpEnabled, roundUpCause }, taxExempt);
   const beforeRoundUp = subtotal + tax;
   // Round up to the next whole dollar — never a fixed "suggested donation".
   const roundUpCents =
@@ -188,11 +194,12 @@ export default function Register({ loaderData }: Route.ComponentProps) {
 
     const sale = {
       offlineId: newOfflineId(),
-      lines: cart.map(({ itemId, title, priceCents, retailEstimateCents }) => ({
+      lines: cart.map(({ itemId, title, priceCents, retailEstimateCents, listPriceCents }) => ({
         itemId,
         title,
         priceCents,
         retailEstimateCents,
+        listPriceCents,
       })),
       subtotalCents: subtotal,
       taxCents: tax,
@@ -217,6 +224,8 @@ export default function Register({ loaderData }: Route.ComponentProps) {
       if (result.rejected.length > 0 || result.unfulfilled > 0) {
         setNeedsAttention({ rejected: result.rejected, unfulfilled: result.unfulfilled });
       }
+      const mine = result.receipts.find((r) => r.offlineId === sale.offlineId);
+      if (mine) setLastReceipt({ url: mine.receiptUrl, id: mine.transactionId });
       await refreshPending();
     }
   }
@@ -285,10 +294,11 @@ export default function Register({ loaderData }: Route.ComponentProps) {
       await new Promise((r) => setTimeout(r, 2000));
       try {
         const res = await fetch(`/api/pos/terminal/status/${txId}`);
-        const data = (await res.json()) as { state?: string };
+        const data = (await res.json()) as { state?: string; receiptUrl?: string };
 
         if (data.state === "succeeded") {
           setPhase("succeeded");
+          if (data.receiptUrl) setLastReceipt({ url: data.receiptUrl, id: txId });
           setFlash(`${money(total)} — thank you.`);
           setCart([]);
           setTaxExempt(false);
@@ -353,6 +363,37 @@ export default function Register({ loaderData }: Route.ComponentProps) {
       ) : null}
 
       {flash ? <Notice tone="good">{flash}</Notice> : null}
+
+      {lastReceipt ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-moss/30 bg-moss/5 px-4 py-3">
+          <p className="text-sm text-bark">
+            Receipt ready. Worth offering — it's what answers a card dispute later.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href={lastReceipt.url}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-lg bg-moss px-3 py-1.5 text-sm font-medium text-white hover:bg-moss-deep"
+            >
+              Print
+            </a>
+            <a
+              href={`/app/sales/${lastReceipt.id}`}
+              className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm text-bark hover:bg-linen"
+            >
+              Email it
+            </a>
+            <button
+              type="button"
+              onClick={() => setLastReceipt(null)}
+              className="px-2 text-sm text-slate-soft underline underline-offset-2"
+            >
+              No thanks
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {needsAttention.unfulfilled > 0 ? (
         <Notice tone="warn">

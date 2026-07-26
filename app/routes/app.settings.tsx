@@ -1,7 +1,8 @@
 import { Form, redirect, useNavigation } from "react-router";
 import type { Route } from "./+types/app.settings";
 import { requireRole, requireUser } from "../lib/auth";
-import { all, first, parseSettings, run } from "../lib/db";
+import { all, first, run } from "../lib/db";
+import { DEFAULT_SETTINGS, parseOrgSettings, serialiseOrgSettings } from "../lib/settings";
 import { envFrom, integrationStatus } from "../lib/env";
 import { TAG_COLOR_HEX } from "../lib/markdown";
 import { TRUST_BOUNDARIES } from "../lib/nri/voice";
@@ -63,7 +64,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     ),
   ]);
 
-  const settings = parseSettings(org?.settings_json);
+  const settings = parseOrgSettings(org?.settings_json);
 
   // Rendered server-side so the panel is truthful on first paint rather than
   // flashing "not connected" while a fetch resolves.
@@ -94,11 +95,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     testMode: isTestMode(env.STRIPE_SECRET_KEY),
     org,
     rules,
-    settings: {
-      taxRateBps: Number(settings.taxRateBps ?? 0),
-      roundUpEnabled: settings.roundUpEnabled !== false,
-      roundUpCause: String(settings.roundUpCause ?? "our community programs"),
-    },
+    settings,
     integrations: integrationStatus(env),
     role: user.role,
     salesThisMonth: Number(salesThisMonth?.n ?? 0),
@@ -134,16 +131,18 @@ export async function action({ request, context }: Route.ActionArgs) {
 
   if (intent === "register") {
     const taxPct = parseFloat(String(form.get("tax_rate") ?? "0"));
-    const settings = {
-      // Store tax as basis points — a percentage kept as a float rounds wrong.
+    // Serialised through the shared shape, so the key names here, in the
+    // register, and in the server-side pricer are the same by construction.
+    const settings = serialiseOrgSettings({
+      // Stored as basis points — a percentage kept as a float rounds wrong.
       taxRateBps: Number.isFinite(taxPct) ? Math.round(taxPct * 100) : 0,
       roundUpEnabled: form.get("round_up") === "on",
-      roundUpCause: String(form.get("round_up_cause") ?? "").trim() || "our community programs",
-    };
+      roundUpCause: String(form.get("round_up_cause") ?? "").trim() || DEFAULT_SETTINGS.roundUpCause,
+    });
     await run(
       env.DB,
       `UPDATE orgs SET settings_json = ?, updated_at = datetime('now') WHERE id = ?`,
-      JSON.stringify(settings),
+      settings,
       user.orgId
     );
     return redirect("/app/settings?saved=register");

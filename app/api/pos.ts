@@ -11,7 +11,7 @@
 import { Hono } from "hono";
 import { all, first, run } from "../lib/db";
 import { getUser, roleAtLeast } from "../lib/auth";
-import { newId } from "../lib/ids";
+import { newId, newToken } from "../lib/ids";
 import type { AppEnv } from "../lib/env";
 import { StripeError } from "../lib/stripe/client";
 import {
@@ -30,6 +30,7 @@ import { applyInventoryEffect, reserveItems } from "../lib/payments";
 import { quotePlatformFee } from "../lib/fees";
 import { canAcceptPayments, getAccount } from "../lib/stripe/connect";
 import { effectivePriceCents, DEFAULT_MARKDOWN_RULES } from "../lib/markdown";
+import { parseOrgSettings, taxCentsFor } from "../lib/settings";
 import { planRefund, refundSale, RefundError, openDisputes } from "../lib/refunds";
 import {
   closeShift,
@@ -169,15 +170,11 @@ export async function priceCart(
 
   const subtotal = lines.reduce((sum, l) => sum + l.priceCents, 0);
 
-  let taxBps = 0;
-  try {
-    const settings = JSON.parse(org?.settings_json ?? "{}") as { taxBps?: number };
-    taxBps = Number(settings.taxBps ?? 0);
-  } catch {
-    taxBps = 0;
-  }
-
-  const taxCents = opts.taxExempt ? 0 : Math.round((subtotal * taxBps) / 10_000);
+  // Through the shared parser, so this and the register cannot read different
+  // keys. They did once: this pricer read `taxBps` while settings wrote
+  // `taxRateBps`, and every card payment charged no tax at all.
+  const settings = parseOrgSettings(org?.settings_json);
+  const taxCents = taxCentsFor(subtotal, settings, opts.taxExempt);
   // A round-up is a donation the customer chose. Clamped to something sane so a
   // fat finger can't turn a $4 sale into a $400 one.
   const roundUp = Math.max(0, Math.min(Math.round(opts.roundUpCents ?? 0), 100_00));
@@ -302,8 +299,8 @@ pos.post("/api/pos/terminal/pay", async (c) => {
     `INSERT INTO transactions
        (id, org_id, cashier_user_id, shift_id, subtotal_cents, tax_cents, roundup_cents,
         total_cents, tender, tax_exempt, payment_state, fee_policy_id, platform_fee_bps,
-        platform_fee_cents, fee_base_cents)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'terminal', ?, 'draft', ?, ?, ?, ?)`,
+        platform_fee_cents, fee_base_cents, receipt_token)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'terminal', ?, 'draft', ?, ?, ?, ?, ?)`,
     txId,
     user!.orgId,
     user!.id,
@@ -316,7 +313,8 @@ pos.post("/api/pos/terminal/pay", async (c) => {
     quote.policy.feePolicyId,
     quote.policy.platformFeeBps,
     quote.platformFeeCents,
-    quote.feeBaseCents
+    quote.feeBaseCents,
+    newToken(24)
   );
 
   await c.env.DB.batch(
@@ -448,18 +446,24 @@ pos.get("/api/pos/terminal/status/:transactionId", async (c) => {
   if (error) return error;
 
   const txId = c.req.param("transactionId");
-  const tx = await first<{ payment_state: string; stripe_payment_intent_id: string | null }>(
+  const tx = await first<{
+    payment_state: string;
+    stripe_payment_intent_id: string | null;
+    receipt_token: string | null;
+  }>(
     c.env.DB,
-    `SELECT payment_state, stripe_payment_intent_id FROM transactions
+    `SELECT payment_state, stripe_payment_intent_id, receipt_token FROM transactions
       WHERE id = ? AND org_id = ?`,
     txId,
     user!.orgId
   );
   if (!tx) return json({ error: "No such sale." }, 404);
 
+  const receiptUrl = tx.receipt_token ? `/r/${tx.receipt_token}` : null;
+
   const settled = ["succeeded", "failed", "canceled", "refunded", "partially_refunded"];
   if (settled.includes(tx.payment_state) || !tx.stripe_payment_intent_id) {
-    return json({ state: tx.payment_state, source: "local" });
+    return json({ state: tx.payment_state, source: "local", receiptUrl });
   }
 
   if (!c.env.STRIPE_SECRET_KEY) return json({ state: tx.payment_state, source: "local" });
@@ -492,9 +496,9 @@ pos.get("/api/pos/terminal/status/:transactionId", async (c) => {
       await applyInventoryEffect(c.env.DB, user!.orgId, txId, state);
     }
 
-    return json({ state, source: "stripe" });
+    return json({ state, source: "stripe", receiptUrl });
   } catch {
-    return json({ state: tx.payment_state, source: "local", stale: true });
+    return json({ state: tx.payment_state, source: "local", stale: true, receiptUrl });
   }
 });
 

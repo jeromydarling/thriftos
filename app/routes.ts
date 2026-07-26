@@ -20,6 +20,9 @@ export default [
   // The shop's own public page
   route("s/:slug", "routes/storefront.tsx"),
 
+  // A customer's receipt. Public by design — a shopper has no login.
+  route("r/:token", "routes/receipt.tsx"),
+
   // The app
   route("app", "routes/app.tsx", [
     index("routes/app.dashboard.tsx"),
@@ -28,6 +31,7 @@ export default [
     route("intake", "routes/app.intake.tsx"),
     route("drawer", "routes/app.drawer.tsx"),
     route("money", "routes/app.money.tsx"),
+    route("sales/:id", "routes/app.sale.tsx"),
     route("inventory", "routes/app.inventory.tsx"),
     route("register", "routes/app.register.tsx"),
     route("people", "routes/app.people.tsx"),

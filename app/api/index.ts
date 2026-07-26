@@ -6,7 +6,7 @@
  */
 import { Hono } from "hono";
 import { all, first, run } from "../lib/db";
-import { newId } from "../lib/ids";
+import { newId, newToken } from "../lib/ids";
 import { getUser } from "../lib/auth";
 import { clientIp, LIMITS, rateLimit, recordAttempt } from "../lib/ratelimit";
 import { extractItemFromPhoto, confidenceLabel } from "../lib/ai";
@@ -143,7 +143,13 @@ api.post("/api/intake/photo", async (c) => {
 
 interface OfflineSale {
   offlineId: string;
-  lines: { itemId?: string; title: string; priceCents: number; retailEstimateCents?: number }[];
+  lines: {
+    itemId?: string;
+    title: string;
+    priceCents: number;
+    retailEstimateCents?: number;
+    listPriceCents?: number;
+  }[];
   subtotalCents: number;
   taxCents?: number;
   roundupCents?: number;
@@ -181,6 +187,10 @@ api.post("/api/pos/sync", async (c) => {
 
   let synced = 0;
   let duplicates = 0;
+  // Returned so the register can offer the customer a receipt without a second
+  // round trip — the moment to ask "would you like a receipt?" is while they're
+  // still standing there.
+  const receipts: { offlineId: string; transactionId: string; receiptUrl: string }[] = [];
   const conflicts: { offlineId: string; itemIds: string[] }[] = [];
   const rejected: { offlineId: string; reason: string }[] = [];
 
@@ -213,6 +223,7 @@ api.post("/api/pos/sync", async (c) => {
     }
 
     const txId = newId("transaction");
+    const receiptToken = newToken(24);
     const createdAt = sale.createdAt ?? new Date().toISOString();
     const state = initialStateForTender(tender, { stripeConfigured });
 
@@ -232,8 +243,8 @@ api.post("/api/pos/sync", async (c) => {
            (id, org_id, cashier_user_id, subtotal_cents, tax_cents, roundup_cents, total_cents,
             tender, tax_exempt, offline_id, synced_at, created_at,
             payment_state, fee_policy_id, platform_fee_bps, platform_fee_cents, fee_base_cents,
-            shift_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?)`
+            shift_id, receipt_token)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         txId,
         user.orgId,
@@ -251,13 +262,15 @@ api.post("/api/pos/sync", async (c) => {
         quote.policy.platformFeeBps,
         platformFee,
         quote.feeBaseCents,
-        openDrawerId
+        openDrawerId,
+        receiptToken
       ),
       ...(sale.lines ?? []).map((line) =>
         c.env.DB.prepare(
           `INSERT INTO transaction_items
-             (id, org_id, transaction_id, item_id, title, price_cents, retail_estimate_cents)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
+             (id, org_id, transaction_id, item_id, title, price_cents, markdown_cents,
+              retail_estimate_cents)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           newId("txItem"),
           user.orgId,
@@ -265,6 +278,9 @@ api.post("/api/pos/sync", async (c) => {
           line.itemId ?? null,
           line.title || "Item",
           Math.round(line.priceCents || 0),
+          // What the colour tag took off. Absent on a manually-priced line,
+          // which is honest — nobody knows what it "should" have cost.
+          Math.max(0, Math.round((line.listPriceCents ?? 0) - (line.priceCents || 0))),
           Math.round(line.retailEstimateCents || 0)
         )
       ),
@@ -332,6 +348,11 @@ api.post("/api/pos/sync", async (c) => {
       }
     }
 
+    receipts.push({
+      offlineId: sale.offlineId,
+      transactionId: txId,
+      receiptUrl: `/r/${receiptToken}`,
+    });
     synced++;
   }
 
@@ -345,6 +366,7 @@ api.post("/api/pos/sync", async (c) => {
   return json({
     synced,
     duplicates,
+    receipts,
     conflicts,
     rejected,
     unfulfilled: Number(unresolved?.n ?? 0),

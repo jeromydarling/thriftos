@@ -74,12 +74,9 @@ export function decodeCursor(cursor: string | null): [string, string] | null {
 }
 
 /** The org's stored JSON settings blob, parsed defensively. */
-export function parseSettings(json: string | null | undefined): Record<string, unknown> {
-  if (!json) return {};
-  try {
-    const parsed = JSON.parse(json);
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
-}
+// Settings parsing deliberately lives in lib/settings.ts, not here.
+//
+// This file used to export an untyped `parseSettings` returning
+// Record<string, unknown>. Three call sites read it, two of them agreed on a
+// key name and one didn't, and card payments silently charged no sales tax.
+// A typed parser makes the key name appear once and a rename a compile error.
