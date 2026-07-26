@@ -182,3 +182,28 @@ describe("what the demo shop ends up looking like", () => {
     expect(seed.indexOf("copyDemoPhotos")).toBeLessThan(seed.indexOf("demoWindowStatements("));
   });
 });
+
+describe("a demo that predates the shop window", () => {
+  const seed = readFileSync("app/lib/seed.ts", "utf8");
+
+  it("rebuilds itself rather than waiting a week", () => {
+    const heal = seed.slice(seed.indexOf("export async function ensureDemoSeeded"));
+    expect(heal).toMatch(/tag_number LIKE 'W%'/);
+    expect(heal).toMatch(/total === 0 \|\| window === 0/);
+  });
+
+  it("keys the rebuild on rows, not on photographs", () => {
+    // Keying it on photo_key would make a demo whose images failed to copy
+    // reseed itself on every single visit, forever, trying to fix something
+    // it can't.
+    const heal = seed.slice(seed.indexOf("export async function ensureDemoSeeded"));
+    expect(heal).not.toMatch(/photo_key/);
+  });
+
+  it("gives window items a tag number nothing else uses", () => {
+    const stock = readFileSync("app/lib/demo-stock.ts", "utf8");
+    expect(stock).toMatch(/`W\$\{String\(100 \+ i\)\}`/);
+    // The bulk of the demo is T1000 upwards.
+    expect(seed).toMatch(/`T\$\{String\(1000 \+ i\)\}`/);
+  });
+});

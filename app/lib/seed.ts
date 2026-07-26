@@ -526,12 +526,26 @@ export async function ensureDemoSeeded(env: AppEnv): Promise<string | null> {
     const result = await seedDemoOrg(env);
     return result.orgId;
   }
-  const items = await first<{ n: number }>(
+  const items = await first<{ total: number; window: number }>(
     db,
-    `SELECT COUNT(*) AS n FROM items WHERE org_id = ?`,
+    `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN tag_number LIKE 'W%' THEN 1 ELSE 0 END) AS window
+       FROM items WHERE org_id = ?`,
     org.id
   );
-  if (Number(items?.n ?? 0) === 0) {
+
+  // Empty is the obvious case. The second is a demo that predates something
+  // the seed now produces — here, the photographed shop window, whose tag
+  // numbers start with W. Without this a demo seeded last week keeps its old
+  // shape until the weekly reset, which is a week of showing an empty photo
+  // bench and a feed with nothing in it.
+  //
+  // The check is on the rows, not on the photographs. If copying the images
+  // fails the rows are still written, so this can't become a demo that
+  // reseeds itself on every visit trying to fix something it can't.
+  const total = Number(items?.total ?? 0);
+  const window = Number(items?.window ?? 0);
+  if (total === 0 || window === 0) {
     await seedDemoOrg(env);
   }
   return org.id;
