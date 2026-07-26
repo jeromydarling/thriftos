@@ -10,6 +10,7 @@ import {
 } from "../lib/seo";
 import { MarketingFooter, MarketingHeader } from "../components/marketing";
 import { Storefront } from "../components/storefront";
+import { Backdrop, Band } from "../components/photo";
 import { envFrom } from "../lib/env";
 import { loadStorefrontPage, shopForHostname } from "../lib/storefront";
 import { LinkButton } from "../components/ui";
@@ -225,6 +226,11 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           </p>
         </section>
 
+        {/* A photograph, at full strength, rather than a ghost behind the
+            headline. The hero already carries an aurora, a grid, a typewriter
+            and a live demo; a picture underneath all that reads as murk. */}
+        <Band id="shopfloor" tall />
+
         {/* ── The showcase ─────────────────────────────────────────────── */}
         <section className="mx-auto max-w-6xl px-4 py-20 sm:py-28">
           <Reveal>
@@ -286,6 +292,11 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         </section>
 
         {/* ── Savings ──────────────────────────────────────────────────── */}
+        <Band id="rail" tall>
+          Every one of these was given away by somebody, and priced by somebody
+          else, and is about to belong to a third person.
+        </Band>
+
         <section id="savings" className="scroll-mt-8 border-y border-line bg-white py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-4">
             <Reveal>
@@ -392,6 +403,8 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           </div>
         </section>
 
+        <Band id="tags" />
+
         {/* ── NRI ──────────────────────────────────────────────────────── */}
         <section className="border-y border-line bg-white py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-4">
@@ -479,6 +492,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
 
         {/* ── CTA ──────────────────────────────────────────────────────── */}
         <section className="relative overflow-hidden border-t border-line bg-white">
+          <Backdrop id="window" className="opacity-[0.15]" />
           <div className="aurora opacity-60" aria-hidden="true" />
           <div className="relative mx-auto max-w-3xl px-4 py-20 text-center sm:py-28">
             <Reveal>
