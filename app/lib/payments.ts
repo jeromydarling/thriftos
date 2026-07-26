@@ -191,6 +191,24 @@ export async function reserveItems(
  * Mark a sale's reserved items sold. Idempotent — a webhook that arrives twice
  * finalises once, because the second pass matches no rows.
  */
+/**
+ * Mark this transaction's lines sold.
+ *
+ * The condition is narrow on purpose, and it used to be `status IN ('held',
+ * 'available')` — which sells an item *whoever* is holding it. A payment that
+ * lands late finds the coat held by a different, live checkout and takes it,
+ * and now two people have bought one coat with both payments approved. That is
+ * the exact failure the reservation system exists to prevent, arriving through
+ * the back door.
+ *
+ * It became reachable when checkout moved to Stripe's hosted page: a session
+ * stays payable for at least thirty minutes, so a payment arriving after our
+ * hold lapsed is ordinary rather than theoretical.
+ *
+ * An item this transaction cannot claim simply isn't counted, and the caller
+ * marks the line unfulfilled — one item sold, one line for a person to sort
+ * out, rather than two sales of a thing that only existed once.
+ */
 export async function sellReservedItems(
   db: D1Database,
   orgId: string,
@@ -212,11 +230,19 @@ export async function sellReservedItems(
       `UPDATE items
           SET status = 'sold', sold_at = ?, sold_price_cents = ?,
               held_by_transaction_id = NULL, updated_at = datetime('now')
-        WHERE id = ? AND org_id = ? AND status IN ('held', 'available')`,
+        WHERE id = ? AND org_id = ?
+          AND (
+            -- Ours, held by this very transaction.
+            held_by_transaction_id = ?
+            -- Or on the shelf and spoken for by nobody. The offline queue
+            -- settles sales that were rung up with no chance to reserve.
+            OR (held_by_transaction_id IS NULL AND status = 'available')
+          )`,
       soldAt,
       line.price_cents,
       line.item_id,
-      orgId
+      orgId,
+      transactionId
     );
     if ((res.meta?.changes ?? 0) > 0) sold++;
   }

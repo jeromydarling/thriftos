@@ -247,61 +247,92 @@ export async function createCardPresentIntent(
   );
 }
 
+export interface CheckoutSession {
+  id: string;
+  /** Where to send the shopper. The whole point of the hosted page. */
+  url?: string | null;
+  payment_intent?: string | null;
+  status?: string | null;
+  expires_at?: number | null;
+}
+
+export interface HostedCheckoutLine {
+  name: string;
+  amountCents: number;
+}
+
 /**
- * A payment intent for a card typed into a browser.
+ * A hosted Stripe Checkout session for an online order.
  *
  * The same destination-charge shape as the counter — `on_behalf_of` plus
- * `transfer_data.destination`, so the shop is the merchant of record and we
- * carry the dispute liability deliberately rather than by accident. The only
- * real differences are the payment method type and that nobody is holding the
- * card, so Stripe may need to send the shopper to their bank: `requires_action`
- * is an ordinary outcome online where it is nearly unheard of on a reader.
+ * `transfer_data.destination` — so the shop is the merchant of record and we
+ * carry dispute liability deliberately rather than by accident.
  *
- * Returns the client secret, which is the one piece of this the browser sees.
- * It authorises confirming *this* payment and nothing else.
+ * Lines are sent individually because a shopper about to pay should see what
+ * they are buying rather than one "Order total". Every amount is one we
+ * computed; Stripe is being told the arithmetic, not asked for it. Postage and
+ * sales tax arrive as their own lines for the same reason.
  */
-export async function createOnlineIntent(
+export async function createHostedCheckout(
   config: StripeConfig,
-  opts: CardPresentIntentOptions & { receiptEmail?: string | null },
+  opts: {
+    lines: readonly HostedCheckoutLine[];
+    /** Must equal the sum of the lines. Checked here rather than trusted. */
+    totalCents: number;
+    applicationFeeCents: number;
+    connectedAccountId: string;
+    transactionId: string;
+    orgId: string;
+    shopName: string;
+    successUrl: string;
+    cancelUrl: string;
+    customerEmail?: string | null;
+    currency?: string;
+    /** Unix seconds. Must not outlive the inventory hold behind it. */
+    expiresAt: number;
+  },
   idempotencyKey: string
-): Promise<StripePaymentIntent> {
-  const amount = Math.round(opts.amountCents);
+): Promise<CheckoutSession> {
+  const total = Math.round(opts.totalCents);
   const fee = Math.round(opts.applicationFeeCents);
+  const summed = opts.lines.reduce((n, l) => n + Math.round(l.amountCents), 0);
 
-  // The same three refusals as the counter. An online order is not a reason to
-  // trust an amount less.
-  if (amount <= 0) throw new Error("A payment must be for a positive amount.");
+  if (opts.lines.length === 0) throw new Error("A checkout must have something in it.");
+  if (total <= 0) throw new Error("A payment must be for a positive amount.");
+  if (summed !== total) {
+    // A silent mismatch here charges a different number from the one the order
+    // was written with, and the two would only be compared at reconciliation.
+    throw new Error(`Checkout lines total ${summed} but the order is ${total}. Refusing to charge.`);
+  }
   if (fee < 0) throw new Error("A platform fee cannot be negative.");
-  if (fee >= amount) {
-    throw new Error(
-      `Platform fee (${fee}) is not less than the payment (${amount}). Refusing to charge.`
-    );
+  if (fee >= total) {
+    throw new Error(`Platform fee (${fee}) is not less than the payment (${total}). Refusing to charge.`);
   }
 
-  return stripeRequest<StripePaymentIntent>(
-    config,
-    "POST",
-    "/payment_intents",
-    {
-      amount,
-      currency: opts.currency ?? "usd",
-      "automatic_payment_methods[enabled]": "true",
-      on_behalf_of: opts.connectedAccountId,
-      transfer_data: { destination: opts.connectedAccountId },
-      ...(fee > 0 ? { application_fee_amount: fee } : {}),
-      ...(opts.receiptEmail ? { receipt_email: opts.receiptEmail } : {}),
-      ...(opts.statementDescriptorSuffix
-        ? { statement_descriptor_suffix: opts.statementDescriptorSuffix.slice(0, 22) }
-        : {}),
-      metadata: {
-        thriftos_transaction_id: opts.transactionId,
-        thriftos_org_id: opts.orgId,
-        thriftos_channel: "online",
-        ...(opts.metadata ?? {}),
-      },
-    },
-    idempotencyKey
-  );
+  const body: Record<string, unknown> = {
+    mode: "payment",
+    success_url: opts.successUrl,
+    cancel_url: opts.cancelUrl,
+    expires_at: opts.expiresAt,
+    "payment_intent_data[on_behalf_of]": opts.connectedAccountId,
+    "payment_intent_data[transfer_data][destination]": opts.connectedAccountId,
+    "payment_intent_data[metadata][thriftos_transaction_id]": opts.transactionId,
+    "payment_intent_data[metadata][thriftos_org_id]": opts.orgId,
+    "payment_intent_data[metadata][thriftos_channel]": "online",
+    "metadata[thriftos_transaction_id]": opts.transactionId,
+    "metadata[thriftos_org_id]": opts.orgId,
+    ...(fee > 0 ? { "payment_intent_data[application_fee_amount]": String(fee) } : {}),
+    ...(opts.customerEmail ? { customer_email: opts.customerEmail } : {}),
+  };
+
+  opts.lines.forEach((line, i) => {
+    body[`line_items[${i}][quantity]`] = "1";
+    body[`line_items[${i}][price_data][currency]`] = opts.currency ?? "usd";
+    body[`line_items[${i}][price_data][unit_amount]`] = String(Math.round(line.amountCents));
+    body[`line_items[${i}][price_data][product_data][name]`] = line.name.slice(0, 250);
+  });
+
+  return stripeRequest<CheckoutSession>(config, "POST", "/checkout/sessions", body, idempotencyKey);
 }
 
 /** Hand the intent to a reader. The customer taps; Stripe tells us what happened. */

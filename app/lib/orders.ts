@@ -37,8 +37,24 @@ export type FulfilmentStatus =
   | "unfindable"
   | "refunded";
 
-/** How long a checkout holds stock before the items go back on sale. */
-export const HOLD_MINUTES = 15;
+/**
+ * How long Stripe's hosted checkout page stays payable.
+ *
+ * Thirty minutes is Stripe's minimum for a session, so this is a floor we don't
+ * get to choose.
+ */
+export const SESSION_MINUTES = 30;
+
+/**
+ * How long a checkout holds stock before the items go back on sale.
+ *
+ * **Must be longer than SESSION_MINUTES.** The hold is what stops the item
+ * being sold to somebody else while a shopper is on Stripe's page; if it
+ * lapsed first, a perfectly ordinary payment at minute 29 would arrive for a
+ * coat we had already put back on the rail. The five-minute margin is for
+ * webhook delivery, which is quick but not instant.
+ */
+export const HOLD_MINUTES = SESSION_MINUTES + 5;
 
 /* ─── The cart ───────────────────────────────────────────────────────────── */
 

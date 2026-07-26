@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { canAdvance, pickupCode, FULFILMENT_FLOW, HOLD_MINUTES, type FulfilmentStatus } from "./orders";
+import {
+  canAdvance,
+  pickupCode,
+  FULFILMENT_FLOW,
+  HOLD_MINUTES,
+  SESSION_MINUTES,
+  type FulfilmentStatus,
+} from "./orders";
 
 describe("pickup codes", () => {
   const codes = Array.from({ length: 400 }, () => pickupCode());
@@ -90,11 +97,16 @@ describe("the fulfilment state machine", () => {
 describe("the rules that keep stock honest", () => {
   const src = readFileSync("app/lib/orders.ts", "utf8");
 
-  it("holds stock for minutes, not for a browsing session", () => {
-    // Long enough to type an address, short enough that an abandoned checkout
-    // doesn't keep a coat off the rail all afternoon.
-    expect(HOLD_MINUTES).toBeGreaterThanOrEqual(10);
-    expect(HOLD_MINUTES).toBeLessThanOrEqual(30);
+  it("holds stock for longer than Stripe's page stays payable", () => {
+    // The upper bound here used to be a flat 30 minutes, chosen before
+    // checkout was hosted. Stripe's session is payable for a minimum of thirty
+    // minutes, so a hold shorter than that would lapse while a shopper is
+    // still on the page — and their perfectly ordinary payment would arrive
+    // for a coat already back on the rail.
+    expect(HOLD_MINUTES).toBeGreaterThan(SESSION_MINUTES);
+    // Still measured in minutes. An abandoned checkout must not keep a coat
+    // off the rail all afternoon.
+    expect(HOLD_MINUTES).toBeLessThanOrEqual(SESSION_MINUTES + 15);
   });
 
   it("prices from the database and never from the request", () => {

@@ -26,13 +26,13 @@ import { newRequestId, bindLog } from "./log";
 import { openAttempt, advanceAttempt } from "./attempts";
 import { applyInventoryEffect, reserveItems } from "./payments";
 import { quotePlatformFee } from "./fees";
-import { createOnlineIntent } from "./stripe/terminal";
+import { createHostedCheckout, type HostedCheckoutLine } from "./stripe/terminal";
 import type { StripeConfig } from "./stripe/client";
 import {
+  SESSION_MINUTES,
   pickupCode,
   priceOrder,
   readCart,
-  type CartLine,
   type FulfilmentMethod,
 } from "./orders";
 
@@ -52,7 +52,8 @@ export type CheckoutResult =
   | {
       ok: true;
       transactionId: string;
-      clientSecret: string;
+      /** Where to send the shopper. Stripe hosts the card form, not us. */
+      checkoutUrl: string;
       totalCents: number;
       pickupCode: string | null;
     }
@@ -87,6 +88,9 @@ export async function beginCheckout(
     method: FulfilmentMethod;
     buyer: Buyer;
     connectedAccountId: string;
+    shopName: string;
+    successUrl: string;
+    cancelUrl: string;
   }
 ): Promise<CheckoutResult> {
   const problem = validBuyer(opts.buyer, opts.method);
@@ -235,50 +239,75 @@ export async function beginCheckout(
     initialState: "draft",
   });
 
+  // What the shopper sees on Stripe's page: the things, then the postage, then
+  // the tax. One "Order total" line would be less work and would hide what
+  // they're buying at the exact moment they're deciding whether to.
+  const stripeLines: HostedCheckoutLine[] = totals.lines.map((l) => ({
+    name: l.title,
+    amountCents: l.priceCents,
+  }));
+  if (totals.shippingCents > 0) {
+    stripeLines.push({
+      name: totals.shipping?.band?.label ?? "Postage",
+      amountCents: totals.shippingCents,
+    });
+  }
+  if (totals.taxCents > 0) {
+    stripeLines.push({ name: "Sales tax", amountCents: totals.taxCents });
+  }
+
   try {
-    const intent = await createOnlineIntent(
+    const session = await createHostedCheckout(
       config,
       {
-        amountCents: totals.totalCents,
+        lines: stripeLines,
+        totalCents: totals.totalCents,
         applicationFeeCents: quote.platformFeeCents,
         connectedAccountId: opts.connectedAccountId,
         transactionId: txId,
         orgId: opts.orgId,
-        receiptEmail: opts.buyer.email.trim().toLowerCase(),
+        shopName: opts.shopName,
+        successUrl: opts.successUrl,
+        cancelUrl: opts.cancelUrl,
+        customerEmail: opts.buyer.email.trim().toLowerCase(),
+        // Stripe's minimum session life is thirty minutes, and the hold behind
+        // it is deliberately longer. A session that outlived its hold would let
+        // somebody pay for a coat we had already put back on the rail.
+        expiresAt: Math.floor(Date.now() / 1000) + SESSION_MINUTES * 60,
       },
       attempt.idempotency_key
     );
 
+    if (!session.url) {
+      throw new Error("Stripe returned a checkout session with no URL to send the shopper to.");
+    }
+
     await advanceAttempt(db, opts.orgId, attempt.id, {
       state: "processing",
-      paymentIntentId: intent.id,
+      paymentIntentId: session.payment_intent ?? undefined,
     });
 
     await run(
       db,
       `UPDATE transactions SET payment_state = 'processing', stripe_payment_intent_id = ?
         WHERE id = ?`,
-      intent.id,
+      session.payment_intent ?? null,
       txId
     );
 
     logger.info("online payment started", {
       attemptId: attempt.id,
-      stripeObjectId: intent.id,
+      stripeObjectId: session.id,
       idempotencyKey: attempt.idempotency_key,
       amountCents: totals.totalCents,
       feeCents: quote.platformFeeCents,
       transition: "draft→processing",
     });
 
-    if (!intent.client_secret) {
-      throw new Error("Stripe returned a payment intent with no client secret.");
-    }
-
     return {
       ok: true,
       transactionId: txId,
-      clientSecret: intent.client_secret,
+      checkoutUrl: session.url,
       totalCents: totals.totalCents,
       pickupCode: code,
     };

@@ -23,7 +23,7 @@ describe("goods are held before money is asked for", () => {
   it("reserves stock before creating a payment intent", () => {
     // Reversed, a shop charges a card for a jumper somebody bought at the
     // counter thirty seconds earlier, and owes a stranger a refund.
-    expect(at("reserveItems(")).toBeLessThan(at("createOnlineIntent("));
+    expect(at("reserveItems(")).toBeLessThan(at("createHostedCheckout("));
   });
 
   it("prices the order before reserving anything", () => {
@@ -32,17 +32,17 @@ describe("goods are held before money is asked for", () => {
 
   it("snapshots the lines before taking payment", () => {
     // The receipt must not change if the item is re-priced or re-tagged later.
-    expect(at("INSERT INTO transaction_items")).toBeLessThan(at("createOnlineIntent("));
+    expect(at("INSERT INTO transaction_items")).toBeLessThan(at("createHostedCheckout("));
   });
 
   it("opens a payment attempt before calling Stripe", () => {
     // The attempt carries the idempotency key. Calling Stripe first means a
     // retry can charge twice.
-    expect(at("openAttempt(")).toBeLessThan(at("createOnlineIntent("));
+    expect(at("openAttempt(")).toBeLessThan(at("createHostedCheckout("));
   });
 
   it("passes the attempt's idempotency key to Stripe", () => {
-    expect(src).toMatch(/createOnlineIntent\([\s\S]{0,600}attempt\.idempotency_key/);
+    expect(src).toMatch(/createHostedCheckout\([\s\S]{0,1800}attempt\.idempotency_key/);
   });
 });
 
@@ -81,7 +81,14 @@ describe("money is computed, never received", () => {
   });
 
   it("charges the total it computed", () => {
-    expect(src).toMatch(/amountCents:\s*totals\.totalCents/);
+    expect(src).toMatch(/totalCents:\s*totals\.totalCents/);
+  });
+
+  it("sends the shopper to Stripe rather than collecting a card itself", () => {
+    // Hosted checkout: Stripe owns the card form and the PCI surface. Nothing
+    // in this codebase should ever see a card number.
+    expect(src).toContain("checkoutUrl");
+    expect(src).not.toMatch(/card_number|cardNumber|cvc/i);
   });
 
   it("keeps postage out of the platform fee base", () => {
@@ -132,5 +139,32 @@ describe("abandoned checkouts put the goods back", () => {
 
   it("says why the items went back", () => {
     expect(src).toMatch(/void_reason = 'Checkout not completed/);
+  });
+});
+
+describe("the hold outlives the payment window", () => {
+  // The hazard hosted checkout introduces. Stripe's session is payable for at
+  // least thirty minutes; if the inventory hold lapsed first, an ordinary
+  // payment at minute twenty-nine would arrive for a coat already back on the
+  // rail — and, before the fix in payments.ts, could have taken it out of
+  // somebody else's live checkout.
+  it("holds stock for longer than the session stays payable", async () => {
+    const { HOLD_MINUTES, SESSION_MINUTES } = await import("./orders");
+    expect(HOLD_MINUTES).toBeGreaterThan(SESSION_MINUTES);
+  });
+
+  it("expires the session from the same constant it holds against", () => {
+    expect(src).toMatch(/SESSION_MINUTES \* 60/);
+  });
+});
+
+describe("selling a reserved item cannot take somebody else's", () => {
+  const payments = readFileSync("app/lib/payments.ts", "utf8");
+
+  it("only sells what this transaction holds, or what nobody holds", () => {
+    // `status IN ('held','available')` alone sells an item whoever is holding
+    // it — two approved payments, one coat.
+    expect(payments).toMatch(/held_by_transaction_id = \?/);
+    expect(payments).toMatch(/held_by_transaction_id IS NULL AND status = 'available'/);
   });
 });
