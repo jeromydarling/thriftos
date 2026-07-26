@@ -56,6 +56,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+
+      # The script imports sharp to compress what the model returns. This
+      # workflow used to install nothing, which was fine while the script
+      # shelled out to a tool that might be on the runner and is not fine now
+      # that it depends on something real.
+      - run: npm ci
 
       # Which token is this, and what is it allowed to do?
       #
