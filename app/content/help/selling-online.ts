@@ -336,11 +336,23 @@ export const ONLINE_ARTICLES: readonly HelpArticle[] = [
             alt: "A navy wool peacoat laid on a beige carpet, photographed from above with a laundry basket and table legs at the edges of the frame.",
           },
           after: {
-            src: "/api/demo/tidied/peacoat.webp",
-            caption: "What goes on the listing",
+            src: "/api/demo/tidied/peacoat.webp?style=plain",
+            caption: "Plain",
             alt: "The same coat, cut out of its background and centred on a plain off-white square.",
           },
-          note: "The picture on the right is made when you load this page, by the same code your own photographs go through — it is not a screenshot of a good result we kept. Now look at the coat itself in both: the scuffed cuff is still scuffed and the marks down the front are still there. The photograph got better; the coat did not.",
+          also: [
+            {
+              src: "/api/demo/tidied/peacoat.webp?style=shadow",
+              caption: "With a shadow",
+              alt: "The same coat on a plain background, sitting on a soft shadow in its own shape.",
+            },
+            {
+              src: "/api/demo/tidied/peacoat.webp?style=blur",
+              caption: "Softened",
+              alt: "The same coat where it was photographed, with the carpet and clutter blurred and drained of colour behind it.",
+            },
+          ],
+          note: "All three are made when you load this page, by the same code your own photographs go through — none is a screenshot of a good result we kept. Now look at the coat itself in every one: the scuffed cuff is still scuffed and the marks down the front are still there. The photograph got better; the coat did not.",
         },
       },
       {
@@ -366,6 +378,27 @@ export const ONLINE_ARTICLES: readonly HelpArticle[] = [
           tone: "note",
           title: "The original is never replaced",
           body: "A tidied photograph is stored alongside the original, not over it. Throw the tidy-up away and you are exactly where you started. Every listing using a tidied photograph links to the original, so anyone can see what was actually photographed.",
+        },
+      },
+      {
+        heading: "Three ways, and which to pick",
+        body: [
+          "Plain is the default and suits most things: cut out, centred, on an even background. It's the one that makes a page of listings look like a shop, because every item ends up the same size and shape.",
+          "With a shadow is the same cut-out sitting on a soft shadow in its own shape. Use it when a plain cut-out looks like it's floating — which it often does for anything with a solid form, like a mug or a lamp. The shadow is the one thing here that wasn't in your photograph: it's built from the item's own outline, it says nothing about the item's condition, and it's there because an object with no shadow at all reads as pasted on.",
+          "Softened removes nothing. Your background is still there — blurred and drained of colour so the item stands forward. The real shadow and the real surface survive, which some shops much prefer. The trade is that it doesn't give you an even grid, because every photograph keeps its own framing.",
+        ],
+        table: {
+          headers: ["Style", "Background", "Good for"],
+          rows: [
+            ["Plain", "Replaced", "Clothing, and anything you want in a tidy grid"],
+            ["With a shadow", "Replaced", "Solid objects that look pasted on without one"],
+            ["Softened", "Kept, pushed back", "Shops that would rather change nothing at all"],
+          ],
+        },
+        callout: {
+          tone: "note",
+          title: "Light or dark background",
+          body: "Plain and With a shadow both let you choose. Pale things — cream mugs, white shirts — disappear into a pale background, and a dark one gives them their edges back. Dark items want the light one. It's a decision about the item, not about your shop, so it sits on each photograph.",
         },
       },
       {

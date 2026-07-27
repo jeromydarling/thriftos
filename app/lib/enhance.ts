@@ -13,7 +13,10 @@
 import { first, run } from "./db";
 import { parseBrandKit, luminance } from "./brand";
 import {
+  DEFAULT_GROUND,
+  DEFAULT_STYLE,
   ENHANCE_OUTPUT,
+  SEAMLESS,
   SHADOW,
   cutoutTransform,
   enhanceTransform,
@@ -21,6 +24,9 @@ import {
   imageBytes,
   seamlessFor,
   shadowTransform,
+  softenTransform,
+  type Ground,
+  type PhotoStyle,
 } from "./photos";
 import type { AppEnv } from "./env";
 
@@ -40,21 +46,30 @@ export function composeProductShot(
   env: AppEnv,
   bytes: ArrayBuffer,
   opts: {
+    style?: PhotoStyle;
     background: string;
     size?: number;
     padding?: number;
-    shadow?: boolean;
     /** Overrides, for tuning against real photographs. */
     blur?: number;
     drop?: number;
     darkness?: number;
   }
 ): ImageTransformer {
+  const style = opts.style ?? DEFAULT_STYLE;
+
   const chain = enhanceTransform({
     background: opts.background,
     size: opts.size,
     padding: opts.padding,
   });
+  const size = chain.width + chain.border.width * 2;
+
+  // The same source, opened again. `input()` consumes a stream, and every one
+  // of these needs the photograph two or three times over. Cheap: the bytes
+  // are already in memory.
+  const open = () => env.IMAGES.input(streamOf(bytes));
+  const cutout = () => open().transform(cutoutTransform() as never);
 
   const place = {
     width: chain.width,
@@ -64,28 +79,44 @@ export function composeProductShot(
     border: chain.border,
   };
 
-  const sharp = () =>
-    env.IMAGES.input(streamOf(bytes)).transform(cutoutTransform() as never);
+  if (style === "blur") {
+    // Nothing is removed. The whole frame is pushed back, and the item —
+    // segmented but *not* trimmed, so its position is untouched — is drawn
+    // back over itself at full sharpness. The real shadow stays because the
+    // real background stays.
+    //
+    // Both layers take the same square crop from the same source, which is
+    // what makes them line up: crop after segmenting, never before.
+    const square = { width: size, height: size, fit: "cover" };
 
-  if (opts.shadow === false) {
-    return sharp().transform(place as never);
+    const backdrop = open()
+      .transform(softenTransform(opts.blur) as never)
+      .transform(square as never);
+
+    const subject = open()
+      .transform({ segment: "foreground" } as never)
+      .transform(square as never);
+
+    return backdrop.draw(subject);
   }
 
-  const size = chain.width + chain.border.width * 2;
+  if (style === "plain") {
+    return cutout().transform(place as never);
+  }
+
+  // Shadow. Draw order is the whole trick: there is no "draw underneath", so
+  // the shadow layer *is* the canvas — the silhouette greyed and blurred, then
+  // padded onto the seamless. The item goes over it, lifted by the drop, and
+  // the gap between them is what reads as an object sitting on a surface.
   const drop = Math.max(1, Math.round(size * (opts.drop ?? SHADOW.drop)));
 
-  // The canvas: the item's own silhouette, blackened and softened, sitting on
-  // the seamless. Chained rather than one transform so the blackening lands
-  // before there is a background to blacken.
-  const ground = sharp()
+  // Chained rather than one transform, so the greying lands before there is a
+  // background to grey.
+  const ground = cutout()
     .transform(shadowTransform(opts.blur, opts.darkness) as never)
     .transform(place as never);
 
-  // The item, lifted off its shadow by the drop.
-  return ground.draw(sharp().transform(place as never), {
-    top: -drop,
-    opacity: 1,
-  });
+  return ground.draw(cutout().transform(place as never), { top: -drop, opacity: 1 });
 }
 
 /** A fresh stream over the same bytes. `input()` consumes what it's given. */
@@ -114,8 +145,11 @@ export interface EnhanceResult {
 export async function enhanceItemPhoto(
   env: AppEnv,
   orgId: string,
-  itemId: string
+  itemId: string,
+  choice: { style?: PhotoStyle; ground?: Ground } = {}
 ): Promise<EnhanceResult> {
+  const style = choice.style ?? DEFAULT_STYLE;
+  const ground = choice.ground ?? DEFAULT_GROUND;
   const item = await first<{ id: string; photo_key: string | null }>(
     env.DB,
     `SELECT id, photo_key FROM items WHERE id = ? AND org_id = ?`,
@@ -135,16 +169,22 @@ export async function enhanceItemPhoto(
     `SELECT kit_json FROM brand_kits WHERE org_id = ?`,
     orgId
   );
-  const background = seamlessFor(parseBrandKit(kitRow?.kit_json).surface, luminance);
+  // A dark ground is an explicit choice and overrides the shop's surface; a
+  // light one still defers to the brand, because a shop with a warm off-white
+  // of its own should see its own.
+  const background =
+    ground === "dark"
+      ? SEAMLESS.dark
+      : seamlessFor(parseBrandKit(kitRow?.kit_json).surface, luminance);
 
   const original = await env.MEDIA.get(item.photo_key);
   if (!original) return { ok: false, error: "The original photo has gone missing.", status: 404 };
 
   try {
-    const { stream } = await imageBytes(original);
-    const result = await env.IMAGES.input(stream)
-      .transform(enhanceTransform({ background }))
-      .output(ENHANCE_OUTPUT);
+    const { bytes } = await imageBytes(original);
+    const result = await composeProductShot(env, bytes, { style, background }).output(
+      ENHANCE_OUTPUT
+    );
 
     // Buffered rather than streamed straight through: R2 wants a known length
     // too, and the transform's output stream doesn't carry one. A product shot
@@ -156,11 +196,17 @@ export async function enhanceItemPhoto(
     await env.MEDIA.put(key, cutout, { httpMetadata: { contentType: "image/webp" } });
 
     // The key, but not the timestamp. Somebody still has to look at it.
+    // The choice is stored alongside the key so the bench can show what was
+    // picked, and so re-running one keeps its style rather than silently
+    // reverting to the default.
     await run(
       env.DB,
-      `UPDATE items SET photo_enhanced_key = ?, photo_enhanced_at = NULL, updated_at = datetime('now')
+      `UPDATE items SET photo_enhanced_key = ?, photo_enhanced_at = NULL,
+              photo_style = ?, photo_ground = ?, updated_at = datetime('now')
         WHERE id = ? AND org_id = ?`,
       key,
+      style,
+      ground,
       item.id,
       orgId
     );

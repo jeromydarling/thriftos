@@ -1,9 +1,21 @@
+import { useState } from "react";
 import { Form, useNavigation } from "react-router";
 import type { Route } from "./+types/app.photos";
 import { requireUser } from "../lib/auth";
 import { envFrom } from "../lib/env";
 import { all, first } from "../lib/db";
 import { decideEnhancedPhoto, enhanceItemPhoto } from "../lib/enhance";
+import {
+  DEFAULT_GROUND,
+  DEFAULT_STYLE,
+  PHOTO_STYLES,
+  isGround,
+  isPhotoStyle,
+  styleInfo,
+  SEAMLESS,
+  type Ground,
+  type PhotoStyle,
+} from "../lib/photos";
 import { ENHANCE_EXPLAINER } from "../lib/photos";
 import { LIMITS, rateLimit } from "../lib/ratelimit";
 import { Button, Card, EmptyState, LinkButton, Notice } from "../components/ui";
@@ -31,9 +43,16 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const user = await requireUser(request, env.DB);
 
   const [waiting, todo, counts] = await Promise.all([
-    all<{ id: string; title: string; photo_key: string; photo_enhanced_key: string }>(
+    all<{
+      id: string;
+      title: string;
+      photo_key: string;
+      photo_enhanced_key: string;
+      photo_style: string | null;
+      photo_ground: string | null;
+    }>(
       env.DB,
-      `SELECT id, title, photo_key, photo_enhanced_key
+      `SELECT id, title, photo_key, photo_enhanced_key, photo_style, photo_ground
          FROM items
         WHERE org_id = ? AND photo_enhanced_key IS NOT NULL AND photo_enhanced_at IS NULL
         ORDER BY updated_at DESC
@@ -103,7 +122,13 @@ export async function action({ request, context }: Route.ActionArgs) {
     const limit = await rateLimit(env.KV, `enhance:${user.orgId}`, LIMITS.aiIntake);
     if (!limit.allowed) return { error: "That's a lot at once. Give it a minute." };
 
-    const result = await enhanceItemPhoto(env, user.orgId, itemId);
+    const style = String(form.get("style") ?? "");
+    const ground = String(form.get("ground") ?? "");
+
+    const result = await enhanceItemPhoto(env, user.orgId, itemId, {
+      style: isPhotoStyle(style) ? style : undefined,
+      ground: isGround(ground) ? ground : undefined,
+    });
     if (!result.ok) return { error: result.error ?? "That didn't work." };
     return { ok: "Tidied up. Have a look and say whether to keep it." };
   }
@@ -186,7 +211,10 @@ export default function Photos({ loaderData, actionData }: Route.ComponentProps)
                       loading="lazy"
                       className="aspect-square w-full rounded-xl border border-line object-contain"
                     />
-                    <figcaption className="mt-1 text-xs text-slate-soft">Tidied up</figcaption>
+                    <figcaption className="mt-1 text-xs text-slate-soft">
+                      {styleInfo((item.photo_style ?? DEFAULT_STYLE) as PhotoStyle).label}
+                      {item.photo_ground === "dark" ? " · dark" : ""}
+                    </figcaption>
                   </figure>
                 </div>
                 <Form method="post" className="mt-3 flex flex-wrap gap-2">
@@ -203,6 +231,20 @@ export default function Photos({ loaderData, actionData }: Route.ComponentProps)
                   >
                     No — keep the original
                   </Button>
+                </Form>
+
+                {/* Try another one without going back to the other list. The
+                    style that suits a cream mug is not the one that suits a
+                    navy coat, and finding that out takes two clicks. */}
+                <Form method="post" className="mt-3 border-t border-line pt-3">
+                  <input type="hidden" name="itemId" value={item.id} />
+                  <StylePicker
+                    id={item.id}
+                    style={(item.photo_style ?? DEFAULT_STYLE) as PhotoStyle}
+                    ground={item.photo_ground === "dark" ? "dark" : "light"}
+                    disabled={busy || !available}
+                    label="Try a different look"
+                  />
                 </Form>
               </Card>
             ))}
@@ -243,16 +285,13 @@ export default function Photos({ loaderData, actionData }: Route.ComponentProps)
                   className="aspect-square w-full rounded-xl border border-line object-cover"
                 />
                 <p className="mt-2 line-clamp-2 text-sm text-bark">{item.title}</p>
-                <Button
-                  type="submit"
-                  name="intent"
-                  value="enhance"
-                  variant="secondary"
-                  className="mt-2 w-full"
+                <StylePicker
+                  id={item.id}
+                  style={DEFAULT_STYLE}
+                  ground={DEFAULT_GROUND}
                   disabled={busy || !available}
-                >
-                  {busy && pending === item.id ? "Tidying…" : "Tidy this up"}
-                </Button>
+                  label={busy && pending === item.id ? "Tidying…" : "Tidy this up"}
+                />
               </Form>
             ))}
           </div>
@@ -272,6 +311,111 @@ export default function Photos({ loaderData, actionData }: Route.ComponentProps)
           photographed.
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Style and ground, as two rows of radio buttons and a button.
+ *
+ * Radios rather than a dropdown because there are five choices in total and a
+ * volunteer should be able to see them all without opening anything. Native
+ * inputs rather than a custom control because this has to work on a tablet
+ * with a cracked screen, and a `<label>` wrapping a radio is the most reliable
+ * tap target there is.
+ *
+ * The ground row disappears for the softened style, which has no ground —
+ * offering a colour that does nothing is a promise the picture won't keep.
+ */
+function StylePicker({
+  id,
+  style,
+  ground,
+  disabled,
+  label,
+}: {
+  id: string;
+  style: PhotoStyle;
+  ground: Ground;
+  disabled: boolean;
+  label: string;
+}) {
+  const [chosen, setChosen] = useState<PhotoStyle>(style);
+  const info = styleInfo(chosen);
+
+  return (
+    <div>
+      <fieldset className="mt-2">
+        <legend className="sr-only">How to tidy it up</legend>
+        <div className="flex flex-wrap gap-1">
+          {PHOTO_STYLES.map((s) => (
+            <label
+              key={s.id}
+              className={`cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs ${
+                chosen === s.id
+                  ? "border-moss bg-moss/10 font-medium text-moss"
+                  : "border-line text-slate-soft hover:bg-linen"
+              }`}
+            >
+              <input
+                type="radio"
+                name="style"
+                value={s.id}
+                defaultChecked={style === s.id}
+                onChange={() => setChosen(s.id)}
+                className="sr-only"
+              />
+              {s.label}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <p className="mt-1.5 text-xs leading-relaxed text-slate-soft">{info.blurb}</p>
+
+      {info.usesGround ? (
+        <fieldset className="mt-2">
+          <legend className="sr-only">Background</legend>
+          <div className="flex flex-wrap gap-1">
+            {(["light", "dark"] as Ground[]).map((g) => (
+              <label
+                key={g}
+                className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
+                  "border-line text-slate-soft hover:bg-linen"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="ground"
+                  value={g}
+                  defaultChecked={ground === g}
+                  className="h-3.5 w-3.5"
+                />
+                <span
+                  className="inline-block h-3 w-3 rounded-full border border-line"
+                  style={{ backgroundColor: SEAMLESS[g] }}
+                />
+                {g === "light" ? "Light" : "Dark"}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      ) : (
+        // The softened style keeps the real background, so there is nothing to
+        // choose. Sent anyway, so the stored choice doesn't go stale.
+        <input type="hidden" name="ground" value={ground} />
+      )}
+
+      <Button
+        type="submit"
+        name="intent"
+        value="enhance"
+        variant="secondary"
+        className="mt-2 w-full"
+        disabled={disabled}
+      >
+        {label}
+      </Button>
     </div>
   );
 }

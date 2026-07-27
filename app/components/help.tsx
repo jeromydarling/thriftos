@@ -161,8 +161,18 @@ function Section({ section }: { section: HelpSection }) {
           shrinking to two thumbnails nobody can read anything from. */}
       {section.comparison ? (
         <figure className="mt-5">
-          <div className="grid gap-3 sm:grid-cols-2">
-            {[section.comparison.before, section.comparison.after].map((shot, i) => (
+          <div
+            className={`grid gap-3 ${
+              (section.comparison.also?.length ?? 0) > 0
+                ? "grid-cols-2 lg:grid-cols-4"
+                : "sm:grid-cols-2"
+            }`}
+          >
+            {[
+              section.comparison.before,
+              section.comparison.after,
+              ...(section.comparison.also ?? []),
+            ].map((shot, i) => (
               <div key={shot.src}>
                 <img
                   src={shot.src}

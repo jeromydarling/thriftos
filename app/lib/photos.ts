@@ -177,9 +177,90 @@ export function seamlessFor(surface: string, luminance: (hex: string) => number)
   return luminance(surface) > 0.6 ? surface : light;
 }
 
+/**
+ * The three ways a photograph can be tidied.
+ *
+ * They differ in how much of the original survives, and that is the axis a
+ * shop actually cares about. Listed here with the words a shop reads, so the
+ * bench, the help centre and the item screen can't describe them differently.
+ *
+ * `blur` is the only one that removes nothing. The real background is still
+ * there — softened, drained of colour, pushed back — which means the real
+ * shadow and the real contact with the table survive. Nothing is invented and
+ * nothing is cut. It doesn't give an even grid, which is the trade.
+ */
+export const PHOTO_STYLES = [
+  {
+    id: "plain",
+    label: "Plain",
+    blurb: "Cut out and placed on a clean, even background. The tidiest, and the most uniform in a grid.",
+    /** Does it composite a shadow that wasn't in the photograph? */
+    invents: false,
+    /** Does the ground colour apply? */
+    usesGround: true,
+  },
+  {
+    id: "shadow",
+    label: "With a shadow",
+    blurb:
+      "The same cut-out, sitting on a soft shadow in its own shape, so it looks like an object on a surface rather than something pasted on.",
+    invents: true,
+    usesGround: true,
+  },
+  {
+    id: "blur",
+    label: "Softened",
+    blurb:
+      "Nothing is cut out. The background behind the item is blurred and drained of colour so the item stands forward — the real shadow and the real surface stay exactly where they were.",
+    invents: false,
+    usesGround: false,
+  },
+] as const;
+
+export type PhotoStyle = (typeof PHOTO_STYLES)[number]["id"];
+
+export const DEFAULT_STYLE: PhotoStyle = "plain";
+export const DEFAULT_GROUND: Ground = "light";
+
+export function isPhotoStyle(value: string): value is PhotoStyle {
+  return PHOTO_STYLES.some((s) => s.id === value);
+}
+
+export function styleInfo(id: PhotoStyle) {
+  return PHOTO_STYLES.find((s) => s.id === id) ?? PHOTO_STYLES[0];
+}
+
+/**
+ * How far the background is pushed back in the softened style.
+ *
+ * Enough that the eye goes to the item first; not so much that the room
+ * becomes an abstract smear, which looks like a mistake rather than a choice.
+ */
+export const SOFTEN = {
+  blur: 28,
+  /** Below 1 drains colour. The background greys off; the item keeps its own. */
+  saturation: 0.35,
+  /** Slightly lifted, so the item reads as the darker, nearer thing. */
+  brightness: 1.12,
+} as const;
+
 /** The cut-out alone, on transparency — the shared first step of both layers. */
 export function cutoutTransform(): { segment: "foreground"; trim: "border" } {
   return { segment: "foreground", trim: "border" };
+}
+
+/**
+ * The softened backdrop: the original, pushed back.
+ *
+ * Deliberately not trimmed and not segmented — this is the whole frame, so the
+ * sharp cut-out drawn over it lands exactly where the item already was.
+ */
+export function softenTransform(blur?: number): Record<string, number> {
+  return {
+    blur: blur ?? SOFTEN.blur,
+    saturation: SOFTEN.saturation,
+    brightness: SOFTEN.brightness,
+  };
 }
 
 /**

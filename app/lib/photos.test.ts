@@ -9,6 +9,13 @@ import {
   enhancedKeyFor,
   enhancedSize,
   seamlessFor,
+  DEFAULT_GROUND,
+  DEFAULT_STYLE,
+  PHOTO_STYLES,
+  SEAMLESS,
+  isGround,
+  isPhotoStyle,
+  styleInfo,
 } from "./photos";
 import { luminance } from "./brand";
 
@@ -128,7 +135,9 @@ describe("the transformation chain", () => {
     expect(Object.keys(t)).not.toContain("quality");
     expect(Object.keys(t)).not.toContain("format");
     expect(ENHANCE_OUTPUT.format).toBe("image/webp");
-    expect(readFileSync("app/lib/enhance.ts", "utf8")).toContain(".output(ENHANCE_OUTPUT)");
+    // Matched across a line break: the call has been wrapped by the formatter
+    // before now, and a test that fails on whitespace teaches nothing.
+    expect(readFileSync("app/lib/enhance.ts", "utf8")).toMatch(/\.output\(\s*ENHANCE_OUTPUT/);
   });
 
   it("has sane defaults", () => {
@@ -154,5 +163,93 @@ describe("choosing the seamless", () => {
     for (const bad of ["", "white", "#fff", "#12345g", "rgb(1,2,3)"]) {
       expect(seamlessFor(bad, luminance), bad).toBe("#f6f4f0");
     }
+  });
+});
+
+describe("the three styles", () => {
+  const work = readFileSync("app/lib/enhance.ts", "utf8");
+
+  it("offers plain, shadow and softened, and nothing else", () => {
+    expect(PHOTO_STYLES.map((s) => s.id)).toEqual(["plain", "shadow", "blur"]);
+    for (const s of PHOTO_STYLES) {
+      expect(s.label.length, s.id).toBeGreaterThan(2);
+      expect(s.blurb.length, s.id).toBeGreaterThan(40);
+    }
+  });
+
+  it("is honest in the data about which one invents something", () => {
+    // The shadow was not in the photograph. Saying so in the record is what
+    // lets the help centre and the bench say so too, without either of them
+    // deciding independently.
+    expect(styleInfo("plain").invents).toBe(false);
+    expect(styleInfo("blur").invents).toBe(false);
+    expect(styleInfo("shadow").invents).toBe(true);
+  });
+
+  it("only offers a ground where there is one", () => {
+    // Softened keeps the real background. Offering a colour that does nothing
+    // is a promise the picture won't keep.
+    expect(styleInfo("blur").usesGround).toBe(false);
+    expect(styleInfo("plain").usesGround).toBe(true);
+    expect(styleInfo("shadow").usesGround).toBe(true);
+  });
+
+  it("defaults to the one that changes least and is most predictable", () => {
+    expect(DEFAULT_STYLE).toBe("plain");
+    expect(DEFAULT_GROUND).toBe("light");
+  });
+
+  it("validates a style rather than trusting the string", () => {
+    expect(isPhotoStyle("shadow")).toBe(true);
+    for (const bad of ["", "SHADOW", "sepia", "drop-shadow"]) {
+      expect(isPhotoStyle(bad), bad).toBe(false);
+    }
+  });
+
+  it("keeps the softened style free of any cut-out crop", () => {
+    // `trim` crops to the subject. Doing that to the backdrop layer would move
+    // the item relative to its own background and the two would not line up.
+    const blurBranch = work.slice(work.indexOf('style === "blur"'), work.indexOf('style === "plain"'));
+    expect(blurBranch).toContain("softenTransform");
+    expect(blurBranch).toContain('segment: "foreground"');
+    expect(blurBranch).not.toContain("cutoutTransform");
+    // The transform key, not the English word — the comment right above it
+    // says "not trimmed", and matching prose is how a test cries wolf.
+    expect(blurBranch).not.toMatch(/\btrim:/);
+  });
+
+  it("gives both softened layers the same crop, or they'd misalign", () => {
+    const blurBranch = work.slice(work.indexOf('style === "blur"'), work.indexOf('style === "plain"'));
+    // One `square` definition used by both, rather than two that could drift.
+    expect(blurBranch.match(/const square = /g) ?? []).toHaveLength(1);
+    expect(blurBranch.match(/\.transform\(square as never\)/g) ?? []).toHaveLength(2);
+  });
+});
+
+describe("the grounds", () => {
+  const work = readFileSync("app/lib/enhance.ts", "utf8");
+
+  it("is warm and off, never pure", () => {
+    // #fff behind a white mug is the same problem as no contrast at all, and
+    // pure black turns a dark coat into a hole.
+    expect(SEAMLESS.light).not.toBe("#ffffff");
+    expect(SEAMLESS.dark).not.toBe("#000000");
+  });
+
+  it("actually contrasts", () => {
+    expect(luminance(SEAMLESS.light)).toBeGreaterThan(0.7);
+    expect(luminance(SEAMLESS.dark)).toBeLessThan(0.25);
+  });
+
+  it("validates a ground rather than trusting the string", () => {
+    expect(isGround("dark")).toBe(true);
+    for (const bad of ["", "black", "Dark", "#333"]) {
+      expect(isGround(bad), bad).toBe(false);
+    }
+  });
+
+  it("stores the choice, so a re-run doesn't silently revert", () => {
+    expect(work).toMatch(/photo_style = \?/);
+    expect(work).toMatch(/photo_ground = \?/);
   });
 });

@@ -24,6 +24,7 @@
 import { DEMO_PHOTOS, demoAssetPath, demoMediaKey } from "../content/demo-photos";
 import { all, run } from "./db";
 import { enhanceItemPhoto } from "./enhance";
+import type { PhotoStyle } from "./photos";
 import { tagColorForIntake } from "./markdown";
 import { newId } from "./ids";
 import type { AppEnv } from "./env";
@@ -168,10 +169,20 @@ export async function tidyDemoWindow(env: AppEnv, orgId: string): Promise<number
     ...half
   );
 
+  // One of each style, cycled, so the shop window shows all three rather than
+  // six of the default. A demo that only demonstrates the default is a demo
+  // of one feature.
+  const STYLES: PhotoStyle[] = ["plain", "shadow", "blur"];
+
   let tidied = 0;
-  for (const row of rows) {
+  for (const [i, row] of rows.entries()) {
     try {
-      const result = await enhanceItemPhoto(env, orgId, row.id);
+      const result = await enhanceItemPhoto(env, orgId, row.id, {
+        style: STYLES[i % STYLES.length],
+        // The pale things want the dark ground. Alternating rather than
+        // measuring: this is a demo, and the point is that both exist.
+        ground: i % 2 === 0 ? "light" : "dark",
+      });
       if (!result.ok) continue;
       await run(
         env.DB,

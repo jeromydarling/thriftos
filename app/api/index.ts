@@ -9,7 +9,17 @@ import { all, first, run } from "../lib/db";
 import { newId, newToken } from "../lib/ids";
 import { getUser } from "../lib/auth";
 import { composeProductShot, decideEnhancedPhoto, enhanceItemPhoto } from "../lib/enhance";
-import { ENHANCE_OUTPUT, SEAMLESS, imageBytes, isGround, seamlessFor } from "../lib/photos";
+import {
+  DEFAULT_STYLE,
+  ENHANCE_OUTPUT,
+  SEAMLESS,
+  imageBytes,
+  isGround,
+  isPhotoStyle,
+  seamlessFor,
+  type Ground,
+  type PhotoStyle,
+} from "../lib/photos";
 import { luminance } from "../lib/brand";
 import { DEMO_PHOTOS, demoAssetPath } from "../content/demo-photos";
 import { clientIp, LIMITS, rateLimit, recordAttempt } from "../lib/ratelimit";
@@ -114,13 +124,13 @@ api.get("/api/demo/tidied/:id", async (c) => {
   );
   if (!asset.ok) return c.notFound();
 
-  // Variants, so the ground and the shadow can be judged on real photographs
-  // rather than argued about. `?ground=dark` and `?shadow=off`.
+  // Every style and ground, on a real photograph, at a URL: the help centre
+  // uses this and so does anybody deciding which they want.
+  // `?style=shadow&ground=dark`.
   const ground = c.req.query("ground") ?? "light";
   const background = isGround(ground) ? SEAMLESS[ground] : seamlessFor("", luminance);
-  // Opt-in while it is being judged, so the live help article keeps the
-  // behaviour somebody has already looked at.
-  const shadow = c.req.query("shadow") === "on";
+  const styleParam = c.req.query("style") ?? "";
+  const style = isPhotoStyle(styleParam) ? styleParam : DEFAULT_STYLE;
 
   const headers = new Headers({
     // A year. The input is a committed file and the transformation is
@@ -143,7 +153,7 @@ api.get("/api/demo/tidied/:id", async (c) => {
     };
     const result = await composeProductShot(c.env, bytes, {
       background,
-      shadow,
+      style,
       blur: num("blur"),
       drop: num("drop"),
       darkness: num("dark"),
@@ -183,7 +193,14 @@ api.post("/api/items/:id/enhance", async (c) => {
     );
   }
 
-  const result = await enhanceItemPhoto(c.env, user.orgId, c.req.param("id"));
+  const body = await c.req
+    .json<{ style?: string; ground?: string }>()
+    .catch(() => ({}) as { style?: string; ground?: string });
+
+  const result = await enhanceItemPhoto(c.env, user.orgId, c.req.param("id"), {
+    style: isPhotoStyle(body.style ?? "") ? (body.style as PhotoStyle) : undefined,
+    ground: isGround(body.ground ?? "") ? (body.ground as Ground) : undefined,
+  });
   if (!result.ok) return json({ error: result.error }, (result.status ?? 500) as 400);
 
   return json({ enhancedUrl: result.enhancedUrl, originalUrl: result.originalUrl });

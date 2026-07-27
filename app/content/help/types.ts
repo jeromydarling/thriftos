@@ -154,6 +154,8 @@ export interface HelpSection {
   comparison?: {
     before: { src: string; caption: string; alt: string };
     after: { src: string; caption: string; alt: string };
+    /** Further results from the same photograph, shown alongside the after. */
+    also?: { src: string; caption: string; alt: string }[];
     /** The honest note under the pair. */
     note?: string;
   };
