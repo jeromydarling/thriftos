@@ -32,7 +32,7 @@ export interface AppEnv extends Env {
   CF_SAAS_ZONE_ID?: string;
 }
 
-export type IntegrationKey = "stripe" | "email" | "ai" | "images";
+export type IntegrationKey = "stripe" | "email" | "ai" | "images" | "monitoring";
 
 export interface IntegrationStatus {
   key: IntegrationKey;
@@ -78,6 +78,14 @@ export function integrationStatus(env: AppEnv): IntegrationStatus[] {
       live: Boolean(env.IMAGES),
       fallback: "Photos are served at their original size.",
       activate: "Add the `images` binding in wrangler.jsonc (already configured).",
+    },
+    {
+      key: "monitoring",
+      label: "Error reporting",
+      live: Boolean(env.SENTRY_DSN),
+      fallback:
+        "Faults still show a plain message and change nothing, but we only hear about them if somebody tells us.",
+      activate: "npx wrangler secret put SENTRY_DSN",
     },
   ];
 }

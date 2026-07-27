@@ -80,16 +80,22 @@ jobs:
       # Piped from an env var rather than passed as an argument: an argument
       # lands in the process list, and `secret put` reads stdin quietly. The
       # value is never echoed, and GitHub masks it in the log regardless.
-      - name: Sync Stripe secrets
+      - name: Sync Worker secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET }}
+          # Not a secret in the usual sense — a Sentry DSN is meant to be public
+          # and ships in browser bundles everywhere. It lives here anyway so
+          # there's one place secrets-shaped configuration comes from, and so
+          # error reporting switches on by adding a GitHub secret rather than by
+          # somebody remembering to run wrangler by hand.
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: |
           set -euo pipefail
-          for name in STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET STRIPE_CONNECT_WEBHOOK_SECRET; do
+          for name in STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET STRIPE_CONNECT_WEBHOOK_SECRET SENTRY_DSN; do
             value="${!name:-}"
             if [ -z "$value" ]; then
               echo "· $name not set in GitHub secrets — leaving whatever the Worker has."
