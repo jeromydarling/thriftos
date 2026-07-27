@@ -8,6 +8,7 @@ import { findOrCreateContact } from "../lib/contacts";
 import { donationReceiptEmail, sendEmail } from "../lib/email";
 import { Button, Card, EmptyState, Field, Input, money, Notice, TableScroll, Textarea } from "../components/ui";
 import { ToastFrom } from "../components/toast";
+import { DraftKeeper } from "../components/draft";
 
 export function meta() {
   return [{ title: "Donations | ThriftOS" }];
@@ -234,6 +235,7 @@ export default function Donations({ loaderData, actionData }: Route.ComponentPro
           <h2 className="font-display text-lg text-bark">Record a donation</h2>
           <Form method="post" className="mt-4 space-y-4">
             <input type="hidden" name="intent" value="record" />
+            <DraftKeeper name="donation" />
 
             <Field label="Donor name" name="donor_name" hint="Leave blank if they'd rather not say.">
               <Input id="donor_name" name="donor_name" />

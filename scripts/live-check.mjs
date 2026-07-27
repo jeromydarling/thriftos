@@ -99,6 +99,27 @@ await title.fill(WAS);
 await page.locator('button[type="submit"]').first().click();
 await settle();
 
+// ─── A draft survives the tab dying ─────────────────────────────────────────
+await page.goto(`${BASE}${href}`, { waitUntil: "networkidle" });
+await title.fill(`${WAS} (unsaved)`);
+await page.waitForTimeout(1200); // Past the settle window.
+// Navigating away without submitting is the tab dying, as far as the form
+// is concerned — nothing was posted, and the values are gone from the DOM.
+await page.goto(`${BASE}/app/inventory`, { waitUntil: "networkidle" });
+await page.goto(`${BASE}${href}`, { waitUntil: "networkidle" });
+
+const putBack = page.locator('button:has-text("Put it back")');
+check("it noticed the unsaved changes", await putBack.count(), 1);
+check("but has not applied them", await title.inputValue(), WAS);
+await putBack.click();
+check("and puts them back when asked", await title.inputValue(), `${WAS} (unsaved)`);
+
+// Discarded, and stays discarded.
+await page.reload({ waitUntil: "networkidle" });
+await page.locator('button:has-text("Discard it")').click();
+await page.reload({ waitUntil: "networkidle" });
+check("a discarded draft stays discarded", await putBack.count(), 0);
+
 // ─── Telling us about it ────────────────────────────────────────────────────
 await page.locator('button:has-text("Something wrong? Tell us")').click();
 await page.waitForTimeout(300);

@@ -8,6 +8,7 @@ import { findOrCreateContact } from "../lib/contacts";
 import { VOLUNTEER_HOUR_VALUE_SOURCE, volunteerHoursValueCents } from "../lib/impact";
 import { Badge, Button, Card, EmptyState, Field, Input, Select, money } from "../components/ui";
 import { ToastFrom } from "../components/toast";
+import { DraftKeeper } from "../components/draft";
 
 export function meta() {
   return [{ title: "Volunteers | ThriftOS" }];
@@ -159,6 +160,7 @@ export default function Volunteers({ loaderData, actionData }: Route.ComponentPr
           <h2 className="font-display text-lg text-bark">Add a shift</h2>
           <Form method="post" className="mt-4 space-y-4">
             <input type="hidden" name="intent" value="schedule" />
+            <DraftKeeper name="shift" />
 
             <Field label="Who" name="name">
               <Input id="name" name="name" required />

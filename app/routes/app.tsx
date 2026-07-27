@@ -30,6 +30,10 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     critical,
     billing: billingNotice(entitlements),
     user: {
+      // Their own id, so a draft kept in this browser is scoped to the person
+      // who typed it — two volunteers sharing a till shouldn't be offered each
+      // other's half-finished records.
+      id: user.id,
       name: user.name,
       role: user.role,
       orgName: user.orgName,

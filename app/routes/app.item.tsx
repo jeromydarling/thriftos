@@ -22,6 +22,7 @@ import {
 } from "../lib/markdown";
 import { Badge, Button, Card, Field, Input, Notice, Select, Textarea, money } from "../components/ui";
 import { ToastFrom } from "../components/toast";
+import { DraftKeeper } from "../components/draft";
 import { failed, noted, ok } from "../lib/toast";
 import { reportError } from "../lib/sentry";
 
@@ -236,6 +237,7 @@ export default function ItemDetail({ loaderData, actionData }: Route.ComponentPr
           a trap after an undo: the screen still shows the edit you just
           reversed, so you press Undo again and redo it. */}
       <Form method="post" key={item.updated_at ?? "new"}>
+        <DraftKeeper name={`item.${item.id}`} />
         <Card>
           <h2 className="font-display text-lg text-bark">What it is</h2>
           <div className="mt-4 space-y-4">
