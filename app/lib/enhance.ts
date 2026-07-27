@@ -39,7 +39,16 @@ import type { AppEnv } from "./env";
 export function composeProductShot(
   env: AppEnv,
   bytes: ArrayBuffer,
-  opts: { background: string; size?: number; padding?: number; shadow?: boolean }
+  opts: {
+    background: string;
+    size?: number;
+    padding?: number;
+    shadow?: boolean;
+    /** Overrides, for tuning against real photographs. */
+    blur?: number;
+    drop?: number;
+    darkness?: number;
+  }
 ): ImageTransformer {
   const chain = enhanceTransform({
     background: opts.background,
@@ -63,13 +72,13 @@ export function composeProductShot(
   }
 
   const size = chain.width + chain.border.width * 2;
-  const drop = Math.max(1, Math.round(size * SHADOW.drop));
+  const drop = Math.max(1, Math.round(size * (opts.drop ?? SHADOW.drop)));
 
   // The canvas: the item's own silhouette, blackened and softened, sitting on
   // the seamless. Chained rather than one transform so the blackening lands
   // before there is a background to blacken.
   const ground = sharp()
-    .transform(shadowTransform() as never)
+    .transform(shadowTransform(opts.blur, opts.darkness) as never)
     .transform(place as never);
 
   // The item, lifted off its shadow by the drop.

@@ -77,8 +77,8 @@ export const SHADOW = {
   blur: 22,
   /** How far down the shadow sits, as a fraction of the frame. */
   drop: 0.018,
-  /** Faint. A heavy shadow looks like a sticker with a bevel. */
-  opacity: 0.28,
+  /** A brightness multiplier on the silhouette. Grey, not black. */
+  darkness: 0.45,
 } as const;
 
 export const DEFAULT_ENHANCE: Required<Omit<EnhanceOptions, "background">> = {
@@ -189,8 +189,10 @@ export function cutoutTransform(): { segment: "foreground"; trim: "border" } {
  * what survives is the silhouette. Applied before the item is placed on a
  * ground, or the ground would be blackened along with it.
  */
-export function shadowTransform(): Record<string, number> {
-  return { brightness: 0, blur: SHADOW.blur };
+export function shadowTransform(blur?: number, darkness?: number): Record<string, number> {
+  // `darkness` is a brightness multiplier, so 0 is black and 0.4 is a soft
+  // grey. Grey reads as a shadow; black reads as a hole cut in the paper.
+  return { brightness: darkness ?? SHADOW.darkness, blur: blur ?? SHADOW.blur };
 }
 
 /**

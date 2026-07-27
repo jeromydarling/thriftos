@@ -137,9 +137,17 @@ api.get("/api/demo/tidied/:id", async (c) => {
 
   try {
     const { bytes } = await imageBytes(asset);
-    const result = await composeProductShot(c.env, bytes, { background, shadow }).output(
-      ENHANCE_OUTPUT
-    );
+    const num = (name: string) => {
+      const v = Number.parseFloat(c.req.query(name) ?? "");
+      return Number.isFinite(v) ? v : undefined;
+    };
+    const result = await composeProductShot(c.env, bytes, {
+      background,
+      shadow,
+      blur: num("blur"),
+      drop: num("drop"),
+      darkness: num("dark"),
+    }).output(ENHANCE_OUTPUT);
     headers.set("Content-Type", "image/webp");
     return new Response(result.image(), { headers });
   } catch (err) {
