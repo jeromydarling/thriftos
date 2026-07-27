@@ -40,7 +40,15 @@ export interface IntegrationStatus {
   live: boolean;
   /** What the app does while it's dark. Shown verbatim in settings. */
   fallback: string;
-  /** The exact one-line command to switch it on. */
+  /**
+   * How to switch it on, exactly.
+   *
+   * For the ones held as Worker secrets this is a GitHub repository secret
+   * rather than a wrangler command, because the deploy syncs them (see the
+   * workflow's "Sync Worker secrets" step). Telling somebody to run wrangler
+   * by hand would work once and then be silently undone by the next deploy —
+   * an instruction that half-works is worse than none.
+   */
   activate: string;
 }
 
@@ -55,7 +63,7 @@ export function integrationStatus(env: AppEnv): IntegrationStatus[] {
       fallback:
         "Cash and 'other' tenders work normally. Card sales are recorded but not charged.",
       activate:
-        "npx wrangler secret put STRIPE_SECRET_KEY && npx wrangler secret put STRIPE_WEBHOOK_SECRET",
+        "Add STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET as GitHub repository secrets. The next deploy syncs them.",
     },
     {
       key: "email",
@@ -63,7 +71,7 @@ export function integrationStatus(env: AppEnv): IntegrationStatus[] {
       live: Boolean(env.RESEND_API_KEY),
       fallback:
         "Receipts still generate and download as PDFs. Sends are written to the email log instead.",
-      activate: "npx wrangler secret put RESEND_API_KEY",
+      activate: "Add RESEND_API_KEY as a GitHub repository secret. The next deploy syncs it.",
     },
     {
       key: "ai",
@@ -85,7 +93,7 @@ export function integrationStatus(env: AppEnv): IntegrationStatus[] {
       live: Boolean(env.SENTRY_DSN),
       fallback:
         "Faults still show a plain message and change nothing, but we only hear about them if somebody tells us.",
-      activate: "npx wrangler secret put SENTRY_DSN",
+      activate: "Add SENTRY_DSN as a GitHub repository secret. The next deploy syncs it.",
     },
   ];
 }
