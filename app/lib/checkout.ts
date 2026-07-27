@@ -27,6 +27,7 @@ import { openAttempt, advanceAttempt } from "./attempts";
 import { applyInventoryEffect, reserveItems } from "./payments";
 import { quotePlatformFee } from "./fees";
 import { createHostedCheckout, type HostedCheckoutLine } from "./stripe/terminal";
+import { assertRealShop, DemoChargeRefused } from "./demo-guard";
 import type { StripeConfig } from "./stripe/client";
 import {
   SESSION_MINUTES,
@@ -259,6 +260,11 @@ export async function beginCheckout(
   }
 
   try {
+    // Immediately before the money, not at the top of the flow. The platform
+    // runs on live keys, and a demo shop taking a real card is the one failure
+    // here that can't be undone by a reset.
+    await assertRealShop(db, opts.orgId);
+
     const session = await createHostedCheckout(
       config,
       {
@@ -339,7 +345,13 @@ export async function beginCheckout(
 
     return {
       ok: false,
-      error: "We couldn't start the payment. Nothing has been charged — please try again.",
+      // A refused demo charge explains itself. Everything else gets the
+      // generic line, because a shopper can do nothing with a Stripe error
+      // and an internal message in front of one is a small leak.
+      error:
+        err instanceof DemoChargeRefused
+          ? err.message
+          : "We couldn't start the payment. Nothing has been charged — please try again.",
     };
   }
 }

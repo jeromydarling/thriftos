@@ -16,6 +16,7 @@ import { getUser, roleAtLeast } from "../lib/auth";
 import { newId, newToken } from "../lib/ids";
 import type { AppEnv } from "../lib/env";
 import { StripeError, stripeConfigFrom } from "../lib/stripe/client";
+import { assertRealShop, DemoChargeRefused } from "../lib/demo-guard";
 import {
   cancelPaymentIntent,
   cancelReaderAction,
@@ -421,6 +422,10 @@ pos.post("/api/pos/terminal/pay", async (c) => {
   });
 
   try {
+    // See app/lib/demo-guard.ts. Live keys make this the one thing the demo
+    // must not be able to do.
+    await assertRealShop(c.env.DB, user!.orgId);
+
     const intent = await createCardPresentIntent(
       config(c.env),
       {
@@ -474,8 +479,12 @@ pos.post("/api/pos/terminal/pay", async (c) => {
   } catch (err) {
     // Stripe refused before any card was presented. Release the goods rather
     // than leaving them held by a payment that will never happen.
+    // A refused demo charge explains itself — a volunteer poking at the demo
+    // should be told why the card path stops, not shown a dead end.
     const message =
-      err instanceof StripeError ? err.message : "We couldn't start the payment.";
+      err instanceof StripeError || err instanceof DemoChargeRefused
+        ? err.message
+        : "We couldn't start the payment.";
     logger.error("could not start card payment", {
       attemptId: attempt.id,
       idempotencyKey: attempt.idempotency_key,
