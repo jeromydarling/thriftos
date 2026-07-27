@@ -40,6 +40,7 @@ export default [
     route("site", "routes/app.site.tsx"),
     route("domains", "routes/app.domains.tsx"),
     route("inventory", "routes/app.inventory.tsx"),
+    route("inventory/:id", "routes/app.item.tsx"),
     route("photos", "routes/app.photos.tsx"),
     route("register", "routes/app.register.tsx"),
     route("people", "routes/app.people.tsx"),

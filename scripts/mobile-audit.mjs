@@ -46,6 +46,7 @@ const APP = [
   "/app/intake",
   "/app/register",
   "/app/inventory",
+  "/app/inventory/FIRST_ITEM",
   "/app/photos",
   "/app/orders",
   "/app/donations",
@@ -76,7 +77,18 @@ await boot.close();
 const page = await ctx.newPage();
 const findings = [];
 
-for (const path of [...PUBLIC, ...APP]) {
+// One real item id, so the item screen is audited with content rather than a
+// 404. Discovered rather than hardcoded — the demo is reseeded weekly.
+await page.goto(`${BASE}/app/inventory`, { waitUntil: "networkidle", timeout: 45000 });
+const firstItem = await page.evaluate(
+  () => document.querySelector('a[href^="/app/inventory/it_"]')?.getAttribute("href") ?? null
+);
+
+const ROUTES = [...PUBLIC, ...APP]
+  .map((p) => (p.endsWith("/FIRST_ITEM") ? firstItem : p))
+  .filter(Boolean);
+
+for (const path of ROUTES) {
   let status = 0;
   try {
     const res = await page.goto(`${BASE}${path}`, { waitUntil: "networkidle", timeout: 45000 });

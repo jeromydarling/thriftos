@@ -10,7 +10,7 @@ import {
   TAG_COLOR_HEX,
   type MarkdownRule,
 } from "../lib/markdown";
-import { Badge, Card, EmptyState, Input, LinkButton, money, Select, TableScroll } from "../components/ui";
+import { Badge, Card, EmptyState, Input, LinkButton, money, Select } from "../components/ui";
 
 export function meta() {
   return [{ title: "Inventory | ThriftOS" }];
@@ -171,73 +171,76 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
           action={<LinkButton to="/app/intake">Log your first item</LinkButton>}
         />
       ) : (
-        <TableScroll>
-          <table className="w-full text-sm">
-            <thead className="border-b border-line bg-linen/60 text-left">
-              <tr>
-                <th className="px-4 py-3 font-medium text-slate-soft">Item</th>
-                <th className="px-4 py-3 font-medium text-slate-soft">Tag</th>
-                <th className="px-4 py-3 font-medium text-slate-soft">Age</th>
-                <th className="px-4 py-3 text-right font-medium text-slate-soft">Price</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {items.map((item) => (
-                <tr key={item.id} className="hover:bg-linen/40">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      {item.photoKey ? (
-                        <img
-                          src={`/api/media/${item.photoKey}?w=64`}
-                          alt=""
-                          className="h-10 w-10 rounded-lg object-cover"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <span className="inline-block h-10 w-10 rounded-lg bg-linen" />
-                      )}
-                      <span>
-                        <span className="block text-bark">{item.title}</span>
-                        <span className="block text-xs text-slate-soft">
-                          {item.category ?? "Uncategorised"} · {item.condition}
-                          {item.status !== "available" ? ` · ${item.status}` : ""}
-                        </span>
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="flex items-center gap-2">
+        /* A list, not a table. Inventory is browse-and-tap, not a
+           spreadsheet: four columns and a photograph squeezed into 390px
+           clipped the price off the right edge, and a table that scrolls
+           sideways is still the wrong shape for the main way into an item.
+           One markup tree that reflows, and the whole row is the link. */
+        <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-white">
+          {items.map((item) => (
+            <li key={item.id}>
+              <Link
+                to={`/app/inventory/${item.id}`}
+                prefetch="intent"
+                className="flex items-center gap-3 p-3 hover:bg-linen/40 sm:gap-4 sm:p-4"
+              >
+                {item.photoKey ? (
+                  <img
+                    src={`/api/media/${item.photoKey}?w=128`}
+                    alt=""
+                    width={56}
+                    height={56}
+                    loading="lazy"
+                    className="h-14 w-14 shrink-0 rounded-lg border border-line object-cover"
+                  />
+                ) : (
+                  <span className="h-14 w-14 shrink-0 rounded-lg bg-linen" />
+                )}
+
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-bark">{item.title}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-soft">
+                    {item.category ?? "Uncategorised"} · {item.condition}
+                    {item.status !== "available" ? ` · ${item.status}` : ""}
+                  </p>
+                  <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-soft">
+                    <span className="inline-flex items-center gap-1.5">
                       <span
-                        className="inline-block h-3 w-3 rounded-full border border-line"
+                        className="inline-block h-2.5 w-2.5 rounded-full border border-line"
                         style={{ backgroundColor: TAG_COLOR_HEX[item.tagColor ?? ""] ?? "#ddd" }}
                       />
-                      <span className="text-xs text-slate-soft">{item.tagNumber ?? "—"}</span>
+                      {item.tagNumber ?? "no tag"}
                     </span>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-slate-soft">
-                    {daysOld(item.intakeDate)} days
+                    <span aria-hidden="true">·</span>
+                    <span>{ageLabel(daysOld(item.intakeDate))}</span>
                     {item.nextDrop ? (
-                      <span className="block">
-                        −{item.nextDrop.toPct}% in {item.nextDrop.inDays}d
-                      </span>
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span>
+                          −{item.nextDrop.toPct}% in {item.nextDrop.inDays}d
+                        </span>
+                      </>
                     ) : null}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <span className="font-medium text-bark">{money(item.priceCents)}</span>
-                    {item.discountPct > 0 ? (
-                      <span className="block text-xs">
-                        <span className="text-slate-soft line-through">
-                          {money(item.listPriceCents)}
-                        </span>{" "}
-                        <Badge color="#B8543F">−{item.discountPct}%</Badge>
-                      </span>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableScroll>
+                  </p>
+                </div>
+
+                <div className="shrink-0 text-right">
+                  <span className="block whitespace-nowrap font-medium text-bark">
+                    {money(item.priceCents)}
+                  </span>
+                  {item.discountPct > 0 ? (
+                    <span className="mt-0.5 block whitespace-nowrap text-xs text-slate-soft line-through">
+                      {money(item.listPriceCents)}
+                    </span>
+                  ) : null}
+                  {item.discountPct > 0 ? (
+                    <Badge color="#B8543F">−{item.discountPct}%</Badge>
+                  ) : null}
+                </div>
+              </Link>
+            </li>
+          ))}
+        </ul>
       )}
 
       {nextCursor ? (
@@ -256,6 +259,12 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
       ) : null}
     </div>
   );
+}
+
+/** "1 day old", not "1 days old". Small, but it's on every row. */
+function ageLabel(days: number): string {
+  if (days === 0) return "in today";
+  return `${days} ${days === 1 ? "day" : "days"} old`;
 }
 
 function daysOld(intakeDate: string): number {
