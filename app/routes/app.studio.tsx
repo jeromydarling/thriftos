@@ -575,7 +575,7 @@ function AssetCard({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="mt-3 text-sm font-medium text-moss underline underline-offset-2"
+        className="mt-3 inline-block py-1 text-sm font-medium text-moss underline underline-offset-2"
       >
         {open ? "Close" : "Make one"}
       </button>

@@ -4,7 +4,7 @@ import { requireUser } from "../lib/auth";
 import { all } from "../lib/db";
 import { envFrom } from "../lib/env";
 import { listContacts, parseRoles, roleLabel, ROLES } from "../lib/contacts";
-import { Badge, Card, EmptyState, Input, Select } from "../components/ui";
+import { Badge, Card, EmptyState, Input, Select, TableScroll } from "../components/ui";
 
 export function meta() {
   return [{ title: "People | ThriftOS" }];
@@ -127,7 +127,7 @@ export default function People({ loaderData }: Route.ComponentProps) {
           body="People appear automatically — the first time you record a donation with a name on it, they'll show up here."
         />
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-line bg-white">
+        <TableScroll>
           <table className="w-full text-sm">
             <thead className="border-b border-line bg-linen/60 text-left">
               <tr>
@@ -160,7 +160,7 @@ export default function People({ loaderData }: Route.ComponentProps) {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       )}
 
       {nextCursor ? (

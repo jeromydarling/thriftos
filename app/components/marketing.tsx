@@ -3,11 +3,16 @@ import { Link } from "react-router";
 export function MarketingHeader() {
   return (
     <header className="border-b border-line bg-white">
-      <nav className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4">
+      {/* Wraps rather than overflows. On a 320px screen the four items in the
+          right-hand group are 23px wider than the phone, and because a header
+          is above the fold it made every marketing page open already scrolled
+          sideways. Wrapping puts the links on their own line instead of
+          hiding them, so a small screen loses nothing but a bit of height. */}
+      <nav className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-4">
         <Link to="/" className="font-display text-xl text-moss">
           ThriftOS
         </Link>
-        <div className="flex items-center gap-1 text-sm sm:gap-4">
+        <div className="flex flex-wrap items-center gap-1 text-sm sm:gap-4">
           <Link to="/nri" prefetch="intent" className="rounded-lg px-2 py-1 text-slate-soft hover:text-bark">
             NRI
           </Link>
@@ -45,22 +50,22 @@ export function MarketingFooter() {
             <p className="text-sm font-medium text-bark">Product</p>
             <ul className="mt-2 space-y-1.5 text-sm text-slate-soft">
               <li>
-                <Link to="/nri" className="hover:text-bark">
+                <Link to="/nri" className="inline-block py-1 hover:text-bark">
                   What NRI is
                 </Link>
               </li>
               <li>
-                <Link to="/pricing" className="hover:text-bark">
+                <Link to="/pricing" className="inline-block py-1 hover:text-bark">
                   Pricing
                 </Link>
               </li>
               <li>
-                <Link to="/demo" className="hover:text-bark">
+                <Link to="/demo" className="inline-block py-1 hover:text-bark">
                   The demo shop
                 </Link>
               </li>
               <li>
-                <Link to="/signup" className="hover:text-bark">
+                <Link to="/signup" className="inline-block py-1 hover:text-bark">
                   Set up a shop
                 </Link>
               </li>
@@ -70,22 +75,22 @@ export function MarketingFooter() {
             <p className="text-sm font-medium text-bark">Guides</p>
             <ul className="mt-2 space-y-1.5 text-sm text-slate-soft">
               <li>
-                <Link to="/guides" className="hover:text-bark">
+                <Link to="/guides" className="inline-block py-1 hover:text-bark">
                   All guides
                 </Link>
               </li>
               <li>
-                <Link to="/guides/donation-receipts-irs-rules" className="hover:text-bark">
+                <Link to="/guides/donation-receipts-irs-rules" className="inline-block py-1 hover:text-bark">
                   Donation receipts
                 </Link>
               </li>
               <li>
-                <Link to="/guides/color-tag-markdown-system" className="hover:text-bark">
+                <Link to="/guides/color-tag-markdown-system" className="inline-block py-1 hover:text-bark">
                   Colour-tag markdowns
                 </Link>
               </li>
               <li>
-                <Link to="/guides/thrift-store-software-comparison" className="hover:text-bark">
+                <Link to="/guides/thrift-store-software-comparison" className="inline-block py-1 hover:text-bark">
                   Honest comparison
                 </Link>
               </li>

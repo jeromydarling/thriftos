@@ -91,7 +91,7 @@ function SignalCard({ signal }: { signal: CompassSignal }) {
             <button
               type="button"
               onClick={() => setShowEvidence((v) => !v)}
-              className="text-xs font-medium text-moss underline underline-offset-2 hover:text-moss-deep"
+              className="inline-block py-1.5 text-xs font-medium text-moss underline underline-offset-2 hover:text-moss-deep"
               aria-expanded={showEvidence}
             >
               {showEvidence ? "Hide the evidence" : "Why am I seeing this?"}
@@ -101,7 +101,7 @@ function SignalCard({ signal }: { signal: CompassSignal }) {
               <Link
                 to={`/app/people?focus=${signal.subjectId}`}
                 prefetch="intent"
-                className="text-xs font-medium text-moss underline underline-offset-2 hover:text-moss-deep"
+                className="inline-block py-1.5 text-xs font-medium text-moss underline underline-offset-2 hover:text-moss-deep"
               >
                 Open their record
               </Link>
@@ -111,7 +111,7 @@ function SignalCard({ signal }: { signal: CompassSignal }) {
               type="button"
               onClick={dismiss}
               disabled={busy}
-              className="text-xs text-slate-soft underline underline-offset-2 hover:text-bark disabled:opacity-50"
+              className="inline-block py-1.5 text-xs text-slate-soft underline underline-offset-2 hover:text-bark disabled:opacity-50"
             >
               {busy ? "Dismissing…" : "Not useful"}
             </button>

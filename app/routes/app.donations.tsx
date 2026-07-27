@@ -6,7 +6,7 @@ import { newId } from "../lib/ids";
 import { ctxFrom, envFrom } from "../lib/env";
 import { findOrCreateContact } from "../lib/contacts";
 import { donationReceiptEmail, sendEmail } from "../lib/email";
-import { Button, Card, EmptyState, Field, Input, Notice, Textarea, money } from "../components/ui";
+import { Button, Card, EmptyState, Field, Input, money, Notice, TableScroll, Textarea } from "../components/ui";
 
 export function meta() {
   return [{ title: "Donations | ThriftOS" }];
@@ -269,14 +269,18 @@ export default function Donations({ loaderData, actionData }: Route.ComponentPro
           </p>
         </Card>
 
-        <div>
+        {/* min-w-0, or this grid item is sized by the natural width of the
+            table inside it — the track grows past the screen and takes the
+            form beside it along for the ride. A scroll container can only
+            scroll if it is allowed to be narrower than its contents. */}
+        <div className="min-w-0">
           {donations.length === 0 ? (
             <EmptyState
               title="No donations recorded yet"
               body="Record the first one on the left, and it'll appear here with a one-click receipt."
             />
           ) : (
-            <div className="overflow-hidden rounded-2xl border border-line bg-white">
+            <TableScroll>
               <table className="w-full text-sm">
                 <thead className="border-b border-line bg-linen/60 text-left">
                   <tr>
@@ -327,7 +331,7 @@ export default function Donations({ loaderData, actionData }: Route.ComponentPro
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableScroll>
           )}
         </div>
       </div>

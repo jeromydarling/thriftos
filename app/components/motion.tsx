@@ -61,10 +61,16 @@ export function Reveal({
 }) {
   const { ref, inView } = useInView<HTMLDivElement>();
 
+  // The sideways entrances are desktop-only, and that is a bug fix rather than
+  // a taste call. A transform doesn't move the layout but it does count toward
+  // scrollable overflow — so on a 390px screen an element still waiting to
+  // slide in from the right sat 24px past the edge and gave the whole page a
+  // horizontal scrollbar. You felt it as the page twitching sideways while you
+  // read. Vertically there is nothing to hit, so `up` stays as it is.
   const hidden = {
     up: "translate-y-6",
-    left: "-translate-x-6",
-    right: "translate-x-6",
+    left: "sm:-translate-x-6",
+    right: "sm:translate-x-6",
     scale: "scale-95",
   }[from];
 

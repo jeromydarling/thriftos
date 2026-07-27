@@ -12,7 +12,7 @@ import {
   realOnly,
 } from "../lib/impact";
 import { rollupImpact } from "../cron/scheduled";
-import { Card, Stat, money } from "../components/ui";
+import { Card, money, Stat, TableScroll } from "../components/ui";
 
 export function meta() {
   return [{ title: "Impact | ThriftOS" }];
@@ -184,7 +184,7 @@ export default function Impact({ loaderData }: Route.ComponentProps) {
       ) : null}
 
       {months.length > 0 ? (
-        <div className="overflow-hidden rounded-2xl border border-line bg-white">
+        <TableScroll>
           <table className="w-full text-sm">
             <thead className="border-b border-line bg-linen/60 text-left">
               <tr>
@@ -215,7 +215,7 @@ export default function Impact({ loaderData }: Route.ComponentProps) {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       ) : null}
     </div>
   );

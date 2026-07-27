@@ -17,6 +17,61 @@ export function Card({
   );
 }
 
+/**
+ * A table that scrolls sideways on a phone instead of being crushed by it.
+ *
+ * Four screens had `overflow-hidden` around a table with no minimum width, and
+ * two had `overflow-x-auto` with one. Same intent, opposite result: the first
+ * four squeezed every column until the last one was clipped off the screen with
+ * no way to reach it, and one of them pushed the whole page sideways. The
+ * difference is a class nobody can see missing, which is why it is a component
+ * now rather than a convention.
+ *
+ * The shadows are the other half. A table that scrolls but doesn't look like it
+ * scrolls is a table people think is broken — so the edges carry a soft shadow
+ * that appears only when there is more content that way. It's done with
+ * `background-attachment`: the white covers sit in the scroller's own
+ * coordinate space and slide away from the shadows underneath as you scroll,
+ * which needs no JavaScript and no resize observer.
+ */
+export function TableScroll({
+  children,
+  minWidth = "34rem",
+  className = "",
+}: {
+  children: React.ReactNode;
+  /** How wide the content needs before squeezing hurts. */
+  minWidth?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      // min-w-0 is not decoration. As a grid or flex child this box would
+      // otherwise be sized by the minimum width of what's inside it — so the
+      // scroller itself becomes 34rem wide, drags its whole track with it, and
+      // pushes the page sideways. The scroll container has to be allowed to be
+      // narrower than its contents; that is the entire point of it.
+      className={`min-w-0 overflow-x-auto rounded-2xl border border-line bg-white ${className}`}
+      style={{
+        backgroundImage: [
+          "linear-gradient(to right, #fff 40%, rgba(255,255,255,0))",
+          "linear-gradient(to left, #fff 40%, rgba(255,255,255,0))",
+          "radial-gradient(farthest-side at 0 50%, rgba(47,42,38,0.13), rgba(47,42,38,0))",
+          "radial-gradient(farthest-side at 100% 50%, rgba(47,42,38,0.13), rgba(47,42,38,0))",
+        ].join(","),
+        backgroundPosition: "left center, right center, left center, right center",
+        backgroundSize: "36px 100%, 36px 100%, 14px 100%, 14px 100%",
+        backgroundRepeat: "no-repeat",
+        // The covers scroll with the content; the shadows stay put. That is
+        // what makes a shadow show up only on the side with more to see.
+        backgroundAttachment: "local, local, scroll, scroll",
+      }}
+    >
+      <div style={{ minWidth }}>{children}</div>
+    </div>
+  );
+}
+
 export function Stat({
   label,
   value,

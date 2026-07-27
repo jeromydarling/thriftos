@@ -115,7 +115,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
       <header className="border-b border-line bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
           <div className="min-w-0">
-            <Link to="/app" className="font-display text-lg text-moss">
+            <Link to="/app" className="inline-block py-0.5 font-display text-lg text-moss">
               ThriftOS
             </Link>
             <p className="truncate text-xs text-slate-soft">{user.orgName}</p>

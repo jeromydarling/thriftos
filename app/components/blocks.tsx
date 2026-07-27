@@ -400,7 +400,7 @@ function BlockView({
             ))}
             {data.phone ? (
               <div className="mt-2">
-                <a href={`tel:${data.phone.replace(/[^\d+]/g, "")}`} className="underline">
+                <a href={`tel:${data.phone.replace(/[^\d+]/g, "")}`} className="inline-block py-1 underline">
                   {data.phone}
                 </a>
               </div>

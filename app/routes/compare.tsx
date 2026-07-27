@@ -254,17 +254,27 @@ export default function Compare({ loaderData }: Route.ComponentProps) {
                               {formatCents(s.thriftosCents)}
                             </td>
                             <td className="px-5 py-3 text-right">
+                              {/* whitespace-nowrap on the signed amount. A minus
+                                  sign and a currency symbol are both "prefix
+                                  numeric" to the line-breaking algorithm, which
+                                  allows a break between them — so a narrow
+                                  column strands the − on its own line and the
+                                  saving reads as a cost. */}
                               {s.savingsCents > 0 ? (
                                 <span className="font-medium text-moss">
-                                  −{formatCents(s.savingsCents)}
-                                  <span className="ml-1 text-xs font-normal text-slate-soft">
+                                  <span className="whitespace-nowrap">
+                                    −{formatCents(s.savingsCents)}
+                                  </span>{" "}
+                                  <span className="whitespace-nowrap text-xs font-normal text-slate-soft">
                                     ({s.savingsPct.toFixed(1)}%)
                                   </span>
                                 </span>
                               ) : (
                                 <span className="font-medium text-clay">
-                                  +{formatCents(Math.abs(s.savingsCents))}
-                                  <span className="ml-1 text-xs font-normal text-slate-soft">
+                                  <span className="whitespace-nowrap">
+                                    +{formatCents(Math.abs(s.savingsCents))}
+                                  </span>{" "}
+                                  <span className="text-xs font-normal text-slate-soft">
                                     we cost more
                                   </span>
                                 </span>
@@ -307,8 +317,11 @@ export default function Compare({ loaderData }: Route.ComponentProps) {
               </p>
             </Reveal>
 
-            <div className="mt-8 overflow-hidden rounded-2xl border border-line">
-              <table className="w-full text-sm">
+            {/* Scrolls rather than squeezes. At 390px the third column was
+                simply clipped, with no way to reach it — and that column is
+                where the comparison actually lives. */}
+            <div className="mt-8 overflow-x-auto rounded-2xl border border-line">
+              <table className="w-full min-w-[40rem] text-sm">
                 <thead className="bg-linen/60 text-left">
                   <tr>
                     <th className="px-4 py-3 font-medium text-slate-soft">Feature</th>

@@ -10,7 +10,7 @@ import {
   TAG_COLOR_HEX,
   type MarkdownRule,
 } from "../lib/markdown";
-import { Badge, Card, EmptyState, Input, LinkButton, Select, money } from "../components/ui";
+import { Badge, Card, EmptyState, Input, LinkButton, money, Select, TableScroll } from "../components/ui";
 
 export function meta() {
   return [{ title: "Inventory | ThriftOS" }];
@@ -171,7 +171,7 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
           action={<LinkButton to="/app/intake">Log your first item</LinkButton>}
         />
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-line bg-white">
+        <TableScroll>
           <table className="w-full text-sm">
             <thead className="border-b border-line bg-linen/60 text-left">
               <tr>
@@ -237,7 +237,7 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       )}
 
       {nextCursor ? (

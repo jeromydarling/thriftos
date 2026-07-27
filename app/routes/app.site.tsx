@@ -313,7 +313,7 @@ export default function Site({ loaderData, actionData }: Route.ComponentProps) {
           <h2 className="font-display text-xl text-bark">Pages</h2>
           <Link
             to="/app/site?page="
-            className="text-sm text-moss underline underline-offset-2"
+            className="inline-block py-1 text-sm text-moss underline underline-offset-2"
           >
             Edit the front page
           </Link>
@@ -448,7 +448,7 @@ function PageEditor({
     <div className="mx-auto max-w-3xl space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <Link to="/app/site" className="text-sm text-moss underline underline-offset-2">
+          <Link to="/app/site" className="inline-block py-1 text-sm text-moss underline underline-offset-2">
             ← All pages
           </Link>
           <h1 className="mt-2 font-display text-3xl text-bark">
@@ -460,7 +460,7 @@ function PageEditor({
           href={`/${publicUrl.split("/").slice(1).join("/")}`}
           target="_blank"
           rel="noreferrer"
-          className="text-sm text-moss underline underline-offset-2"
+          className="inline-block py-1 text-sm text-moss underline underline-offset-2"
         >
           See it
         </a>

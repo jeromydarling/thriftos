@@ -25,7 +25,7 @@ export function ArticleBody({ article, base = "/help" }: { article: HelpArticle;
               <Link
                 to={article.appPath}
                 prefetch="intent"
-                className="font-medium text-moss underline underline-offset-2"
+                className="inline-block py-1 font-medium text-moss underline underline-offset-2"
               >
                 Open this in the app
               </Link>
@@ -63,7 +63,7 @@ export function ArticleBody({ article, base = "/help" }: { article: HelpArticle;
                 <Link
                   to={`${base}/${slug}`}
                   prefetch="intent"
-                  className="text-moss underline underline-offset-2 hover:text-moss-deep"
+                  className="inline-block py-1 text-moss underline underline-offset-2 hover:text-moss-deep"
                 >
                   {slug.replace(/-/g, " ").replace(/^\w/, (c) => c.toUpperCase())}
                 </Link>
