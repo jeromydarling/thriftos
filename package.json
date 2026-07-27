@@ -14,7 +14,7 @@
     "db:local": "wrangler d1 migrations apply thriftos-db --local",
     "db:remote": "wrangler d1 migrations apply thriftos-db --remote",
     "audit:mobile": "node scripts/mobile-audit.mjs",
-    "check:toasts": "node scripts/toast-check.mjs"
+    "check:live": "node scripts/live-check.mjs"
   },
   "dependencies": {
     "hono": "^4.12.32",

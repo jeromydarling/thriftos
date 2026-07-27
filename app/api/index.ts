@@ -31,6 +31,7 @@ import { toCsv } from "../lib/impact";
 import { buildExport, EXPORTS } from "../lib/export";
 import { buildZip } from "../lib/zip";
 import type { AppEnv } from "../lib/env";
+import { reportError } from "../lib/sentry";
 import { scoreSpam } from "../lib/spam";
 import { connect } from "./connect";
 import { pos } from "./pos";
@@ -51,6 +52,34 @@ import {
 type Ctx = { Bindings: AppEnv };
 
 export const api = new Hono<Ctx>();
+
+/**
+ * Anything that got all the way here uncaught.
+ *
+ * Reported with a reference the shop can quote back, and a body that says what
+ * to do rather than what went wrong — a stack trace on a register screen helps
+ * nobody standing at it, and the path is the one place a token would leak, so
+ * it's the pathname only.
+ */
+api.onError((err, c) => {
+  const url = new URL(c.req.url);
+  const eventId = reportError(
+    c.env,
+    err,
+    { path: url.pathname, method: c.req.method },
+    c.executionCtx
+  );
+
+  console.error(`${c.req.method} ${url.pathname}:`, err);
+
+  return new Response(
+    JSON.stringify({
+      error: "Something went wrong at our end. Nothing you sent has been charged or changed.",
+      eventId,
+    }),
+    { status: 500, headers: { "Content-Type": "application/json" } }
+  );
+});
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {

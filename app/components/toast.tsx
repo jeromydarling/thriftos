@@ -26,6 +26,14 @@ interface Live extends ToastMessage {
 interface ToastApi {
   show: (toast: ToastMessage) => void;
   dismiss: (id: number) => void;
+  /**
+   * The last error reference we showed anybody, if we showed one.
+   *
+   * Remembered so that "tell us what happened" can carry it without the person
+   * having to copy a hex string off a toast that has since gone. It's what
+   * turns a report saying "the save didn't work" into the exact stack trace.
+   */
+  lastEventId?: string;
 }
 
 const Ctx = createContext<ToastApi | null>(null);
@@ -61,14 +69,17 @@ export function ToastHost({ children }: { children: React.ReactNode }) {
     setToasts((current) => current.filter((t) => t.id !== id));
   }, []);
 
+  const [lastEventId, setLastEventId] = useState<string | undefined>(undefined);
+
   const show = useCallback((toast: ToastMessage) => {
     const stamped: ToastMessage = toast.undo
       ? { ...toast, undo: { ...toast.undo, action: toast.undo.action ?? here.current } }
       : toast;
+    if (toast.eventId) setLastEventId(toast.eventId);
     setToasts((current) => [...current, { ...stamped, id: nextId.current++ }].slice(-MAX_STACK));
   }, []);
 
-  const api = useMemo(() => ({ show, dismiss }), [show, dismiss]);
+  const api = useMemo(() => ({ show, dismiss, lastEventId }), [show, dismiss, lastEventId]);
 
   return (
     <Ctx.Provider value={api}>

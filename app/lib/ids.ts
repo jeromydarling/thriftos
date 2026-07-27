@@ -48,6 +48,7 @@ export const ID_PREFIX = {
   shippingBand: "sb",
   customDomain: "cd",
   brandAsset: "ba",
+  feedback: "fb",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIX;

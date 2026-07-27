@@ -1,8 +1,8 @@
 /**
- * Save something, undo it, and check the screen told the truth.
+ * Save something, undo it, report it, and check the screen told the truth.
  *
- *   npm run dev           # or: npx wrangler dev --port 8788
- *   npm run check:toasts  # BASE=http://127.0.0.1:8788 npm run check:toasts
+ *   npm run dev         # or: npx wrangler dev --port 8788
+ *   npm run check:live  # BASE=http://127.0.0.1:8788 npm run check:live
  *
  * The unit tests cover the shape of a message and the rules an undo has to
  * obey. They cannot cover the two things that actually broke:
@@ -98,6 +98,22 @@ await page.reload({ waitUntil: "networkidle" });
 await title.fill(WAS);
 await page.locator('button[type="submit"]').first().click();
 await settle();
+
+// ─── Telling us about it ────────────────────────────────────────────────────
+await page.locator('button:has-text("Something wrong? Tell us")').click();
+await page.waitForTimeout(300);
+check("the dialog opens", await page.locator("dialog[open]").count(), 1);
+
+await page.locator("#feedback-body").fill("Live check — ignore this one.");
+await page.locator('dialog button[type="submit"]').click();
+await page.waitForTimeout(2500);
+// Only on success. A failed send has to leave their words where they typed them.
+check("it closes once it's sent", await page.locator("dialog[open]").count(), 0);
+check(
+  "and says so",
+  ((await toasts.last().innerText()).startsWith("Got it")),
+  true
+);
 
 await browser.close();
 

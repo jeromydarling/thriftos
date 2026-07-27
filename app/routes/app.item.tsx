@@ -1,7 +1,7 @@
 import { Form, Link, useNavigation } from "react-router";
 import type { Route } from "./+types/app.item";
 import { requireUser } from "../lib/auth";
-import { envFrom } from "../lib/env";
+import { ctxFrom, envFrom } from "../lib/env";
 import { all } from "../lib/db";
 import {
   CONDITIONS,
@@ -23,6 +23,7 @@ import {
 import { Badge, Button, Card, Field, Input, Notice, Select, Textarea, money } from "../components/ui";
 import { ToastFrom } from "../components/toast";
 import { failed, noted, ok } from "../lib/toast";
+import { reportError } from "../lib/sentry";
 
 export function meta({ loaderData }: Route.MetaArgs) {
   return [{ title: loaderData?.item ? `${loaderData.item.title} | ThriftOS` : "Item | ThriftOS" }];
@@ -100,8 +101,21 @@ export async function action({ request, params, context }: Route.ActionArgs) {
       undo: { fields: undo },
     });
   } catch (err) {
+    // An ItemEditError is the app saying no, on purpose, in a sentence written
+    // for the person reading it. Nothing to report — it's working.
     if (err instanceof ItemEditError) return failed(err.message);
-    return failed("That didn't save. Nothing has been changed.");
+
+    // Anything else is ours. Reported with a reference the shop can quote, and
+    // that the "tell us" form picks up on its own if they'd rather write.
+    const eventId = reportError(
+      env,
+      err,
+      { path: "/app/inventory/:id", method: "POST", orgId: user.orgId },
+      ctxFrom(context)
+    );
+    return failed("That didn't save. Nothing has been changed.", {
+      eventId: eventId ?? undefined,
+    });
   }
 }
 

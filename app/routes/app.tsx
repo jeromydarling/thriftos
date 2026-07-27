@@ -5,6 +5,7 @@ import { envFrom } from "../lib/env";
 import { sampleBatchId } from "../lib/onboarding";
 import { openAlerts } from "../lib/alerts";
 import { billingNotice, getEntitlements } from "../lib/entitlements";
+import { FeedbackButton } from "../components/feedback";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = envFrom(context);
@@ -156,6 +157,20 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
       <main className="mx-auto max-w-6xl px-4 py-8">
         <Outlet />
       </main>
+
+      {/* In the footer rather than a floating bubble. A shop that wants to
+          tell us something will look for it; a chat blob in the corner of the
+          register would be in the way of everyone who doesn't. */}
+      <footer className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-line px-4 py-6 text-sm text-slate-soft">
+        <p>
+          Stuck? The{" "}
+          <Link to="/app/help" className="text-moss underline underline-offset-2">
+            help centre
+          </Link>{" "}
+          covers most of it.
+        </p>
+        <FeedbackButton />
+      </footer>
     </div>
   );
 }

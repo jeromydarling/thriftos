@@ -49,6 +49,7 @@ export default [
     route("impact", "routes/app.impact.tsx"),
     route("settings", "routes/app.settings.tsx"),
     route("help", "routes/app.help.tsx"),
+    route("feedback", "routes/app.feedback.tsx"),
   ]),
 
   // Stripe Connect onboarding round-trip
