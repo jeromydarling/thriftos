@@ -8,8 +8,8 @@ import { Hono } from "hono";
 import { all, first, run } from "../lib/db";
 import { newId, newToken } from "../lib/ids";
 import { getUser } from "../lib/auth";
-import { decideEnhancedPhoto, enhanceItemPhoto } from "../lib/enhance";
-import { ENHANCE_OUTPUT, enhanceTransform, imageBytes, seamlessFor } from "../lib/photos";
+import { composeProductShot, decideEnhancedPhoto, enhanceItemPhoto } from "../lib/enhance";
+import { ENHANCE_OUTPUT, SEAMLESS, imageBytes, isGround, seamlessFor } from "../lib/photos";
 import { luminance } from "../lib/brand";
 import { DEMO_PHOTOS, demoAssetPath } from "../content/demo-photos";
 import { clientIp, LIMITS, rateLimit, recordAttempt } from "../lib/ratelimit";
@@ -114,10 +114,13 @@ api.get("/api/demo/tidied/:id", async (c) => {
   );
   if (!asset.ok) return c.notFound();
 
-  // The default seamless rather than a shop's own. This is an illustration in
-  // the help centre, not a listing, and reading a brand kit for it would put a
-  // database query behind a public image.
-  const background = seamlessFor("", luminance);
+  // Variants, so the ground and the shadow can be judged on real photographs
+  // rather than argued about. `?ground=dark` and `?shadow=off`.
+  const ground = c.req.query("ground") ?? "light";
+  const background = isGround(ground) ? SEAMLESS[ground] : seamlessFor("", luminance);
+  // Opt-in while it is being judged, so the live help article keeps the
+  // behaviour somebody has already looked at.
+  const shadow = c.req.query("shadow") === "on";
 
   const headers = new Headers({
     // A year. The input is a committed file and the transformation is
@@ -133,10 +136,10 @@ api.get("/api/demo/tidied/:id", async (c) => {
   }
 
   try {
-    const { stream } = await imageBytes(asset);
-    const result = await c.env.IMAGES.input(stream)
-      .transform(enhanceTransform({ background }))
-      .output(ENHANCE_OUTPUT);
+    const { bytes } = await imageBytes(asset);
+    const result = await composeProductShot(c.env, bytes, { background, shadow }).output(
+      ENHANCE_OUTPUT
+    );
     headers.set("Content-Type", "image/webp");
     return new Response(result.image(), { headers });
   } catch (err) {

@@ -14,12 +14,75 @@ import { first, run } from "./db";
 import { parseBrandKit, luminance } from "./brand";
 import {
   ENHANCE_OUTPUT,
+  SHADOW,
+  cutoutTransform,
   enhanceTransform,
   enhancedKeyFor,
   imageBytes,
   seamlessFor,
+  shadowTransform,
 } from "./photos";
 import type { AppEnv } from "./env";
+
+/**
+ * Build the finished square: seamless, shadow, item.
+ *
+ * Three passes over the same bytes, because `input()` consumes a stream and
+ * this needs the cut-out twice — once blurred and blackened underneath, once
+ * sharp on top. Cheap: the bytes are already in memory.
+ *
+ * Draw order is the whole trick. There is no "draw underneath", so the shadow
+ * layer *is* the canvas — the silhouette blackened and blurred, then padded
+ * onto the seamless. The real item goes over it, lifted by the drop, and the
+ * gap between them is what reads as an object sitting on a surface.
+ */
+export function composeProductShot(
+  env: AppEnv,
+  bytes: ArrayBuffer,
+  opts: { background: string; size?: number; padding?: number; shadow?: boolean }
+): ImageTransformer {
+  const chain = enhanceTransform({
+    background: opts.background,
+    size: opts.size,
+    padding: opts.padding,
+  });
+
+  const place = {
+    width: chain.width,
+    height: chain.height,
+    fit: chain.fit,
+    background: chain.background,
+    border: chain.border,
+  };
+
+  const sharp = () =>
+    env.IMAGES.input(streamOf(bytes)).transform(cutoutTransform() as never);
+
+  if (opts.shadow === false) {
+    return sharp().transform(place as never);
+  }
+
+  const size = chain.width + chain.border.width * 2;
+  const drop = Math.max(1, Math.round(size * SHADOW.drop));
+
+  // The canvas: the item's own silhouette, blackened and softened, sitting on
+  // the seamless. Chained rather than one transform so the blackening lands
+  // before there is a background to blacken.
+  const ground = sharp()
+    .transform(shadowTransform() as never)
+    .transform(place as never);
+
+  // The item, lifted off its shadow by the drop.
+  return ground.draw(sharp().transform(place as never), {
+    top: -drop,
+    opacity: 1,
+  });
+}
+
+/** A fresh stream over the same bytes. `input()` consumes what it's given. */
+function streamOf(bytes: ArrayBuffer): ReadableStream {
+  return new Response(bytes).body as ReadableStream;
+}
 
 export interface EnhanceResult {
   ok: boolean;

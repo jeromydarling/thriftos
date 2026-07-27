@@ -20,6 +20,30 @@
  * model could, so none is used on the item.
  */
 
+/**
+ * The two grounds an item can sit on.
+ *
+ * Light is right most of the time and is the default. Dark exists because a
+ * pale item on a pale ground is a photograph of almost nothing — four cream
+ * mugs on a cream seamless lose their edges entirely, and no amount of
+ * cutting-out fixes that. The fix is contrast, and contrast is a choice about
+ * the item rather than about the shop.
+ *
+ * Neither is pure: #fff behind a white mug is the same problem, and pure black
+ * turns a dark coat into a hole. Both are warm and slightly off, which is also
+ * what a real paper seamless looks like.
+ */
+export const SEAMLESS = {
+  light: "#f6f4f0",
+  dark: "#33302c",
+} as const;
+
+export type Ground = keyof typeof SEAMLESS;
+
+export function isGround(value: string): value is Ground {
+  return value === "light" || value === "dark";
+}
+
 export interface EnhanceOptions {
   /** The seamless behind the subject. A shop's own surface colour by default. */
   background: string;
@@ -28,6 +52,34 @@ export interface EnhanceOptions {
   /** Breathing room around the subject, as a fraction of the frame. */
   padding?: number;
 }
+
+/**
+ * How the contact shadow is built, and why there is one at all.
+ *
+ * Cutting an item out takes its shadow with it, and an object with no shadow
+ * doesn't look like an object on a surface — it looks pasted. That reads as
+ * fake, which on a page arguing for honesty is the worst possible impression.
+ *
+ * The shadow is derived from the item's own silhouette rather than drawn as a
+ * generic ellipse: the same cut-out, blackened, blurred, and offset down, with
+ * the sharp item placed over it. So a mug's shadow is mug-shaped and a coat's
+ * is coat-shaped, and neither is a shape somebody invented.
+ *
+ * Worth being clear about where this sits against the rule at the top of this
+ * file. A contact shadow is a fact about lighting, not about the goods. It
+ * says nothing about the item's condition, adds nothing it doesn't have, and
+ * hides nothing it does — the wear, the marks and the fading are all still
+ * exactly where they were. Removing the real shadow and putting nothing back
+ * is the change that misleads.
+ */
+export const SHADOW = {
+  /** Enough to read as soft, not so much it becomes a smudge. */
+  blur: 22,
+  /** How far down the shadow sits, as a fraction of the frame. */
+  drop: 0.018,
+  /** Faint. A heavy shadow looks like a sticker with a bevel. */
+  opacity: 0.28,
+} as const;
 
 export const DEFAULT_ENHANCE: Required<Omit<EnhanceOptions, "background">> = {
   size: 1200,
@@ -123,6 +175,22 @@ export function seamlessFor(surface: string, luminance: (hex: string) => number)
   const light = "#f6f4f0";
   if (!/^#[0-9a-f]{6}$/i.test(surface)) return light;
   return luminance(surface) > 0.6 ? surface : light;
+}
+
+/** The cut-out alone, on transparency — the shared first step of both layers. */
+export function cutoutTransform(): { segment: "foreground"; trim: "border" } {
+  return { segment: "foreground", trim: "border" };
+}
+
+/**
+ * The cut-out turned into its own shadow: black, soft, and see-through.
+ *
+ * `brightness: 0` flattens the subject to black without touching the alpha, so
+ * what survives is the silhouette. Applied before the item is placed on a
+ * ground, or the ground would be blackened along with it.
+ */
+export function shadowTransform(): Record<string, number> {
+  return { brightness: 0, blur: SHADOW.blur };
 }
 
 /**
