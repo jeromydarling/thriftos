@@ -12,13 +12,17 @@ import {
   parseBlocks,
   serialiseBlocks,
   pageSlugAvailable,
+  pageSnapshot,
+  readSnapshot,
   slugAvailable,
   suggestSlug,
   type Block,
   type BlockKind,
+  type PageRow,
 } from "../lib/site";
 import { Button, Card, Input } from "../components/ui";
 import { ToastFrom } from "../components/toast";
+import { failed, ok } from "../lib/toast";
 
 export function meta() {
   return [{ title: "Your website | ThriftOS" }];
@@ -224,17 +228,69 @@ export async function action({ request, context }: Route.ActionArgs) {
   if (intent === "delete") {
     const slug = String(form.get("slug") ?? "");
     // The front page isn't deletable — a shop with no front page has no site.
-    if (slug === "") return { error: "The front page can't be deleted." };
-    await run(
+    if (slug === "") return failed("The front page can't be deleted.");
+
+    // Read before deleting, which is the only moment it's readable.
+    const page = await first<PageRow>(
       env.DB,
-      `DELETE FROM site_pages WHERE org_id = ? AND slug = ?`,
+      `SELECT id, slug, title, blocks_json, status, nav_order, nav_label,
+              seo_description, published_at
+         FROM site_pages WHERE org_id = ? AND slug = ?`,
       user.orgId,
       slug
     );
-    return { ok: "Page deleted." };
+    if (!page) return failed("That page isn't there.");
+
+    await run(env.DB, `DELETE FROM site_pages WHERE org_id = ? AND slug = ?`, user.orgId, slug);
+
+    const snapshot = pageSnapshot(page);
+    // No snapshot means the page was too big to carry back through a form.
+    // Better a plain "deleted" than a button that quietly restores half of it.
+    return snapshot
+      ? ok("Page deleted.", { undo: { fields: snapshot, label: "Put it back" } })
+      : ok("Page deleted.");
   }
 
-  return { error: "That action isn't one we know." };
+  if (intent === "restore") {
+    const page = readSnapshot(form);
+    if (!page) return failed("There isn't enough here to put that page back.");
+
+    // Nothing is overwritten. If a page has since been made at that address,
+    // the restore stops rather than replacing somebody's newer work with an
+    // older copy of it.
+    const clash = await first<{ id: string }>(
+      env.DB,
+      `SELECT id FROM site_pages WHERE org_id = ? AND slug = ?`,
+      user.orgId,
+      page.slug
+    );
+    if (clash) return failed("There's a page at that address again, so this one stayed deleted.");
+
+    await run(
+      env.DB,
+      `INSERT INTO site_pages
+         (id, org_id, slug, title, blocks_json, status, nav_order, nav_label,
+          seo_description, updated_by, published_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      page.id,
+      user.orgId,
+      page.slug,
+      page.title,
+      page.blocks_json,
+      page.status,
+      page.nav_order,
+      page.nav_label,
+      page.seo_description,
+      user.id,
+      page.published_at
+    );
+
+    return ok(
+      page.status === "published" ? "Put back, and live again." : "Put back, as a draft."
+    );
+  }
+
+  return failed("That action isn't one we know.");
 }
 
 export default function Site({ loaderData, actionData }: Route.ComponentProps) {

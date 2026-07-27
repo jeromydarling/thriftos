@@ -1,4 +1,4 @@
-import { Form, Link, redirect, useNavigation } from "react-router";
+import { Form, Link, useNavigation } from "react-router";
 import type { Route } from "./+types/app.settings";
 import { requireRole, requireUser } from "../lib/auth";
 import { all, first, run } from "../lib/db";
@@ -15,6 +15,8 @@ import { Badge, Button, Card, Field, Input, Notice, Textarea, money } from "../c
 import { ConnectPanel } from "../components/ConnectPanel";
 import { canAcceptPayments, getAccount, statusExplanation } from "../lib/stripe/connect";
 import { isTestMode, stripeReadiness } from "../lib/stripe/client";
+import { ToastFrom } from "../components/toast";
+import { failed, ok } from "../lib/toast";
 
 export function meta() {
   return [{ title: "Settings | ThriftOS" }];
@@ -134,7 +136,7 @@ export async function action({ request, context }: Route.ActionArgs) {
       String(form.get("email") ?? "").trim() || null,
       user.orgId
     );
-    return redirect("/app/settings?saved=org");
+    return ok("Saved. Your shop's details are used on receipts and your public page.");
   }
 
   if (intent === "online") {
@@ -157,13 +159,24 @@ export async function action({ request, context }: Route.ActionArgs) {
       }),
       user.orgId
     );
-    return redirect("/app/settings?saved=online");
+    return ok("Saved. Online selling follows these now.");
   }
 
   if (intent === "bands") {
     // Rewritten wholesale rather than diffed. Postage bands are a short list a
     // shop edits as a set, and a partial update is how one ends up with an old
     // band nobody meant to keep.
+    //
+    // Which also means a row deleted here is deleted for good, so the set as
+    // it stands is read first and handed back as the undo. It's the same form
+    // posted again with the old values — no special path to get wrong.
+    const before = await all<{ label: string; max_grams: number; price_cents: number }>(
+      env.DB,
+      `SELECT label, max_grams, price_cents FROM shipping_bands
+        WHERE org_id = ? ORDER BY sort_order, id`,
+      user.orgId
+    );
+
     const labels = form.getAll("bandLabel").map(String);
     const grams = form.getAll("bandGrams").map((g) => Math.round(Number(g)));
     const prices = form.getAll("bandPrice").map((p) => Math.round(Number(p) * 100));
@@ -186,7 +199,21 @@ export async function action({ request, context }: Route.ActionArgs) {
         i
       );
     }
-    return redirect("/app/settings?saved=bands");
+    return ok(
+      bands.length === 1 ? "Saved. One postage band." : `Saved. ${bands.length} postage bands.`,
+      before.length > 0
+        ? {
+            undo: {
+              fields: {
+                intent: "bands",
+                bandLabel: before.map((b) => b.label),
+                bandGrams: before.map((b) => String(b.max_grams)),
+                bandPrice: before.map((b) => (b.price_cents / 100).toFixed(2)),
+              },
+            },
+          }
+        : {}
+    );
   }
 
   if (intent === "website") {
@@ -212,7 +239,7 @@ export async function action({ request, context }: Route.ActionArgs) {
       }),
       user.orgId
     );
-    return redirect("/app/settings?saved=website");
+    return ok("Saved. Your public page shows these straight away.");
   }
 
   if (intent === "register") {
@@ -244,7 +271,7 @@ export async function action({ request, context }: Route.ActionArgs) {
       settings,
       user.orgId
     );
-    return redirect("/app/settings?saved=register");
+    return ok("Saved. The register uses these from the next sale.");
   }
 
   if (intent === "markdown") {
@@ -261,13 +288,13 @@ export async function action({ request, context }: Route.ActionArgs) {
         color
       );
     }
-    return redirect("/app/settings?saved=markdown");
+    return ok("Saved. Prices on the floor follow the new ladder.");
   }
 
-  return { error: "We didn't recognise that action." };
+  return failed("We didn't recognise that action.");
 }
 
-export default function Settings({ loaderData }: Route.ComponentProps) {
+export default function Settings({ loaderData, actionData }: Route.ComponentProps) {
   const { org, rules, settings, bands, hasBands, feed, integrations, role, salesThisMonth, aiUsed, connect, testMode } =
     loaderData;
   const navigation = useNavigation();
@@ -283,6 +310,8 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
           Your shop's decisions stay your shop's. Nothing here is set for you.
         </p>
       </div>
+
+      <ToastFrom data={actionData} />
 
       {!canEdit ? (
         <Notice>

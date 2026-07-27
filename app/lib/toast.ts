@@ -38,8 +38,14 @@ export type Tone = "good" | "warn" | "info";
 export interface UndoOffer {
   /** Where to post. Defaults to the screen the toast appeared on. */
   action?: string;
-  /** The hidden fields that reverse it. Usually the values from before. */
-  fields: Record<string, string>;
+  /**
+   * The hidden fields that reverse it. Usually the values from before.
+   *
+   * A value can be a list, because plenty of forms here post repeated names —
+   * a set of postage bands, the blocks on a page. Without that, undo would
+   * only ever work for forms with one of everything.
+   */
+  fields: Record<string, string | string[]>;
   /** Button text. "Undo" reads fine almost everywhere. */
   label?: string;
 }
@@ -120,15 +126,24 @@ function undoFrom(value: unknown): UndoOffer | undefined {
   const raw = value as Record<string, unknown>;
   if (!raw.fields || typeof raw.fields !== "object") return undefined;
 
-  const fields: Record<string, string> = {};
-  for (const [key, v] of Object.entries(raw.fields as Record<string, unknown>)) {
+  const scalar = (v: unknown): string | null =>
     // Coerced rather than dropped: a number that survived the trip as a number
     // is still a perfectly good form value, and silently losing one field out
     // of an undo is how you get an undo that half-works.
+    typeof v === "string" || typeof v === "number" || typeof v === "boolean" ? String(v) : null;
+
+  const fields: Record<string, string | string[]> = {};
+  for (const [key, v] of Object.entries(raw.fields as Record<string, unknown>)) {
     if (v === null || v === undefined) continue;
-    if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
-      fields[key] = String(v);
+    if (Array.isArray(v)) {
+      const list = v.map(scalar).filter((x): x is string => x !== null);
+      // An empty list still means something — "there were no bands" — so it is
+      // kept, unlike a value we couldn't read at all.
+      fields[key] = list;
+      continue;
     }
+    const one = scalar(v);
+    if (one !== null) fields[key] = one;
   }
   if (Object.keys(fields).length === 0) return undefined;
 

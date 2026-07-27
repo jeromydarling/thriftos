@@ -164,9 +164,13 @@ function ToastRow({
 
         {toast.undo ? (
           <undo.Form method="post" action={toast.undo.action} className="mt-2">
-            {Object.entries(toast.undo.fields).map(([name, value]) => (
-              <input key={name} type="hidden" name={name} value={value} />
-            ))}
+            {Object.entries(toast.undo.fields).flatMap(([name, value]) =>
+              // A list becomes repeated inputs under the same name, which is
+              // exactly what the form that produced it posted.
+              (Array.isArray(value) ? value : [value]).map((one, i) => (
+                <input key={`${name}.${i}`} type="hidden" name={name} value={one} />
+              ))
+            )}
             <button
               type="submit"
               disabled={undoing}

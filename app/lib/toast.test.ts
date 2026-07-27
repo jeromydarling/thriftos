@@ -42,6 +42,29 @@ describe("what an action says", () => {
     expect(toastFrom({ toast: "Saved." })).toBeNull();
   });
 
+  it("keeps a repeated field as a list, so a form with several of one name undoes", () => {
+    const undo = toastFrom(
+      ok("Bands saved.", {
+        // The numbers are deliberately off-type — they crossed the wire, and
+        // the reader has to cope with what arrives rather than what we declared.
+        undo: {
+          fields: { intent: "bands", bandLabel: ["Small", "Large"], bandPrice: [3.5, 7] } as never,
+        },
+      })
+    )?.undo;
+    expect(undo?.fields).toEqual({
+      intent: "bands",
+      bandLabel: ["Small", "Large"],
+      bandPrice: ["3.5", "7"],
+    });
+  });
+
+  it("keeps an empty list, because 'there were none' is a thing to restore", () => {
+    expect(toastFrom(ok("x", { undo: { fields: { bandLabel: [] } } }))?.undo?.fields).toEqual({
+      bandLabel: [],
+    });
+  });
+
   it("keeps an undo's fields as strings, and drops one with nothing in it", () => {
     const undo = toastFrom(
       // Deliberately off-type: this crossed the wire, so the reader has to

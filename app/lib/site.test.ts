@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  MAX_SNAPSHOT,
+  pageSnapshot,
+  readSnapshot,
+  type PageRow,
   BLOCKS,
   DEFAULT_HOME,
   RESERVED_PAGE_SLUGS,
@@ -213,5 +217,61 @@ describe("page addresses a shop may not take", () => {
         segment
       );
     }
+  });
+});
+
+describe("deleting a page, and putting it back", () => {
+  const PAGE: PageRow = {
+    id: "sp_1",
+    slug: "about",
+    title: "About us",
+    blocks_json: JSON.stringify([{ kind: "text", heading: "Who we are", body: "Since 1994." }]),
+    status: "published",
+    nav_order: 20,
+    nav_label: "About",
+    seo_description: "A charity shop in town.",
+    published_at: "2026-07-01 09:00:00",
+  };
+
+  it("round-trips a page through the form the undo posts", () => {
+    const fields = pageSnapshot(PAGE);
+    expect(fields).not.toBeNull();
+    const back = readSnapshot(new URLSearchParams(fields!));
+
+    // The id comes back with it, so anything pointing at the page still does.
+    expect(back).toEqual(PAGE);
+  });
+
+  it("round-trips a page with nothing optional set", () => {
+    const bare: PageRow = {
+      ...PAGE,
+      blocks_json: "[]",
+      status: "draft",
+      nav_order: null,
+      nav_label: null,
+      seo_description: null,
+      published_at: null,
+    };
+    expect(readSnapshot(new URLSearchParams(pageSnapshot(bare)!))).toEqual(bare);
+  });
+
+  it("posts the restore intent, so the undo button needs nothing added to it", () => {
+    expect(pageSnapshot(PAGE)?.intent).toBe("restore");
+  });
+
+  it("declines to promise an undo it can't carry", () => {
+    // The snapshot travels as hidden form fields. A button that silently
+    // restores half a page is worse than a plain "deleted".
+    const huge = { ...PAGE, blocks_json: JSON.stringify([{ kind: "text", heading: "", body: "x".repeat(MAX_SNAPSHOT) }]) };
+    expect(pageSnapshot(huge)).toBeNull();
+  });
+
+  it("restores an empty page rather than storing something the renderer chokes on", () => {
+    const back = readSnapshot(new URLSearchParams({ ...pageSnapshot(PAGE)!, blocks: "{not json" }));
+    expect(back?.blocks_json).toBe("[]");
+  });
+
+  it("won't restore something with no id, because that isn't a page", () => {
+    expect(readSnapshot(new URLSearchParams({ slug: "about", title: "About" }))).toBeNull();
   });
 });

@@ -291,3 +291,87 @@ export function suggestSlug(name: string): string {
       .replace(/-+$/, "") || "shop"
   );
 }
+
+/* ─── Deleting a page, and putting it back ──────────────────────────────── */
+
+/**
+ * What a page needs to exist, as form fields.
+ *
+ * Deleting a page used to be a `DELETE` with no confirmation and no way back —
+ * the most destructive thing in the app that isn't money, one click away, on a
+ * screen a volunteer might be poking around in. It still deletes; it just
+ * hands back everything needed to put it there again.
+ *
+ * A snapshot rather than a `deleted_at` column on purpose. Soft deletion means
+ * every read of this table forever after has to remember to filter, and the
+ * one that forgets shows a shop a page it deleted six months ago. This way the
+ * delete is a real delete and the undo is a real insert, which is a thing you
+ * can look at and be sure about.
+ *
+ * Its id comes with it, so anything pointing at the page still points at it.
+ */
+export interface PageRow {
+  id: string;
+  slug: string;
+  title: string;
+  blocks_json: string;
+  status: string;
+  nav_order: number | null;
+  nav_label: string | null;
+  seo_description: string | null;
+  published_at: string | null;
+}
+
+/**
+ * Past this, don't offer the undo.
+ *
+ * The snapshot travels to the browser and back as hidden form fields, and a
+ * button that silently posts half a page would be worse than no button. 64KB
+ * is far more than any page anybody has written here; a page over it gets an
+ * honest "deleted" with no promise attached.
+ */
+export const MAX_SNAPSHOT = 64_000;
+
+export function pageSnapshot(page: PageRow): Record<string, string> | null {
+  const fields: Record<string, string> = {
+    intent: "restore",
+    id: page.id,
+    slug: page.slug,
+    title: page.title,
+    blocks: page.blocks_json,
+    status: page.status,
+    navOrder: page.nav_order === null ? "" : String(page.nav_order),
+    navLabel: page.nav_label ?? "",
+    seoDescription: page.seo_description ?? "",
+    publishedAt: page.published_at ?? "",
+  };
+
+  const size = Object.values(fields).reduce((n, v) => n + v.length, 0);
+  return size > MAX_SNAPSHOT ? null : fields;
+}
+
+/** Read a snapshot back, with the same care any other form input gets. */
+export function readSnapshot(form: {
+  get(name: string): FormDataEntryValue | null;
+}): PageRow | null {
+  const text = (name: string) => String(form.get(name) ?? "");
+  const id = text("id").trim();
+  if (!id) return null;
+
+  const order = Number.parseInt(text("navOrder"), 10);
+
+  return {
+    id,
+    slug: text("slug"),
+    title: text("title").trim() || "Untitled",
+    // Round-tripped through the parser, so a snapshot that arrived mangled
+    // restores an empty page rather than storing something the renderer will
+    // choke on later.
+    blocks_json: serialiseBlocks(parseBlocks(text("blocks"))),
+    status: text("status") === "published" ? "published" : "draft",
+    nav_order: Number.isFinite(order) ? order : null,
+    nav_label: text("navLabel").trim() || null,
+    seo_description: text("seoDescription").trim() || null,
+    published_at: text("publishedAt").trim() || null,
+  };
+}

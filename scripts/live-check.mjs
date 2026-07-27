@@ -120,6 +120,32 @@ await page.locator('button:has-text("Discard it")').click();
 await page.reload({ waitUntil: "networkidle" });
 check("a discarded draft stays discarded", await putBack.count(), 0);
 
+// ─── Deleting a website page, and putting it back ───────────────────────────
+await page.goto(`${BASE}/app/site`, { waitUntil: "networkidle" });
+
+// Make one to delete, so this never touches a page a shop wrote.
+await page.locator("#pageTitle").fill("Live check");
+await page.locator("#pageSlug").fill("live-check");
+await page.locator('button:has-text("Create")').click();
+await settle();
+await page.goto(`${BASE}/app/site`, { waitUntil: "networkidle" });
+check("the page is there", await page.locator('a[href$="page=live-check"]').count() > 0, true);
+
+await page.locator('form:has(input[value="live-check"]) button:has-text("Delete")').first().click();
+await settle();
+check("deleted", await page.locator('a[href$="page=live-check"]').count(), 0);
+
+const back = toasts.locator('button:has-text("Put it back")');
+check("with a way back", await back.count(), 1);
+await back.first().click();
+await page.waitForTimeout(2500);
+await page.goto(`${BASE}/app/site`, { waitUntil: "networkidle" });
+check("and it comes back", await page.locator('a[href$="page=live-check"]').count() > 0, true);
+
+// Tidy up after ourselves.
+await page.locator('form:has(input[value="live-check"]) button:has-text("Delete")').first().click();
+await settle();
+
 // ─── Telling us about it ────────────────────────────────────────────────────
 await page.locator('button:has-text("Something wrong? Tell us")').click();
 await page.waitForTimeout(300);
