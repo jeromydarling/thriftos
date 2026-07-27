@@ -237,7 +237,11 @@ export function styleInfo(id: PhotoStyle) {
  * becomes an abstract smear, which looks like a mistake rather than a choice.
  */
 export const SOFTEN = {
-  blur: 28,
+  // 14, not the 28 this started at. A heavy blur bleeds the item's own light
+  // pixels outward, and the sharp cut-out then sits inside that spill as a
+  // pale halo — which looks like a mistake rather than a photograph. Chosen by
+  // rendering both against the mugs, not by taste.
+  blur: 14,
   /** Below 1 drains colour. The background greys off; the item keeps its own. */
   saturation: 0.35,
   /** Slightly lifted, so the item reads as the darker, nearer thing. */
