@@ -13,7 +13,8 @@
     "cf-typegen": "wrangler types",
     "db:local": "wrangler d1 migrations apply thriftos-db --local",
     "db:remote": "wrangler d1 migrations apply thriftos-db --remote",
-    "audit:mobile": "node scripts/mobile-audit.mjs"
+    "audit:mobile": "node scripts/mobile-audit.mjs",
+    "check:toasts": "node scripts/toast-check.mjs"
   },
   "dependencies": {
     "hono": "^4.12.32",

@@ -17,7 +17,8 @@ import {
   type Block,
   type BlockKind,
 } from "../lib/site";
-import { Button, Card, Input, Notice } from "../components/ui";
+import { Button, Card, Input } from "../components/ui";
+import { ToastFrom } from "../components/toast";
 
 export function meta() {
   return [{ title: "Your website | ThriftOS" }];
@@ -274,12 +275,7 @@ export default function Site({ loaderData, actionData }: Route.ComponentProps) {
         </p>
       </header>
 
-      {actionData && "ok" in actionData && actionData.ok ? (
-        <Notice tone="good">{actionData.ok}</Notice>
-      ) : null}
-      {actionData && "error" in actionData && actionData.error ? (
-        <Notice tone="warn">{actionData.error}</Notice>
-      ) : null}
+      <ToastFrom data={actionData} />
 
       <Card>
         <h2 className="font-display text-xl text-bark">Your address</h2>
@@ -442,8 +438,6 @@ function PageEditor({
       return next;
     });
 
-  const result = actionData as { ok?: string; error?: string } | null;
-
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -466,8 +460,7 @@ function PageEditor({
         </a>
       </header>
 
-      {result?.ok ? <Notice tone="good">{result.ok}</Notice> : null}
-      {result?.error ? <Notice tone="warn">{result.error}</Notice> : null}
+      <ToastFrom data={actionData} />
 
       <Form method="post" className="space-y-5">
         <input type="hidden" name="intent" value="save" />

@@ -8,6 +8,7 @@ import {
 } from "react-router";
 
 import type { Route } from "./+types/root";
+import { ToastHost } from "./components/toast";
 import "./app.css";
 
 export const links: Route.LinksFunction = () => [
@@ -42,7 +43,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body>
-        {children}
+        {/* Wraps everything, including the error boundary, so a message can
+            outlive the screen that produced it — you save something, navigate
+            on, and the confirmation (and its undo) is still there. */}
+        <ToastHost>{children}</ToastHost>
         <ScrollRestoration />
         <Scripts />
         <script dangerouslySetInnerHTML={{ __html: REGISTER_SW }} />

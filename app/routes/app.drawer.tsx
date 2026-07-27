@@ -13,6 +13,7 @@ import {
   ShiftAlreadyOpenError,
 } from "../lib/shifts-cash";
 import { Button, Card, Input, Notice, Stat, money } from "../components/ui";
+import { ToastFrom } from "../components/toast";
 
 export function meta() {
   return [{ title: "Cash drawer | ThriftOS" }];
@@ -109,9 +110,7 @@ export default function Drawer({ loaderData, actionData }: Route.ComponentProps)
         </p>
       </header>
 
-      {actionData && "error" in actionData && actionData.error ? (
-        <Notice tone="warn">{actionData.error}</Notice>
-      ) : null}
+      <ToastFrom data={actionData} />
 
       {closed ? (
         <Notice tone={closed.varianceCents === 0 ? "good" : "warn"}>

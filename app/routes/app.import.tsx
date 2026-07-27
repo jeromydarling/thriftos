@@ -7,6 +7,7 @@ import { commitImport, previewImport, MAX_ROWS, type ImportPlan } from "../lib/i
 import { listBatches, reverseBatch } from "../lib/onboarding";
 import { newToken } from "../lib/ids";
 import { Button, Card, Notice, Select } from "../components/ui";
+import { ToastFrom } from "../components/toast";
 
 export function meta() {
   return [{ title: "Import your records | ThriftOS" }];
@@ -194,9 +195,7 @@ export default function ImportPage({ loaderData, actionData }: Route.ComponentPr
         </Notice>
       ) : null}
 
-      {actionData && "error" in actionData && actionData.error ? (
-        <Notice tone="warn">{actionData.error}</Notice>
-      ) : null}
+      <ToastFrom data={actionData} />
 
       {stage === "map" || stage === "preview" ? (
         <MappingForm data={actionData as MappingData} busy={busy} />

@@ -4,6 +4,7 @@ import {
   ItemEditError,
   diffItem,
   isHeld,
+  itemFormFields,
   moneyIsSettled,
   readItemForm,
   saveItem,
@@ -36,6 +37,7 @@ const BASE: ItemRow = {
   sold_at: null,
   sold_price_cents: null,
   held_by_transaction_id: null,
+  updated_at: "2026-07-21 09:00:00",
 };
 
 function editsFrom(item: ItemRow, over: Partial<ItemEdits> = {}): ItemEdits {
@@ -159,7 +161,7 @@ describe("the rules that protect money", () => {
   it("still lets a sold item's description be corrected", async () => {
     const sold = { ...BASE, status: "sold", sold_at: "2026-07-25" };
     const { run, writes } = save(sold, { title: "Navy wool pea coat" });
-    await expect(run()).resolves.toEqual({ changed: ["title"] });
+    await expect(run()).resolves.toMatchObject({ changed: ["title"] });
     expect(writes.some((w) => w.sql.includes("UPDATE items"))).toBe(true);
   });
 
@@ -170,7 +172,7 @@ describe("the rules that protect money", () => {
 
   it("lets a held item's description be corrected", async () => {
     const held = { ...BASE, held_by_transaction_id: "tx_9" };
-    await expect(save(held, { description: "Lining is sound." }).run()).resolves.toEqual({
+    await expect(save(held, { description: "Lining is sound." }).run()).resolves.toMatchObject({
       changed: ["description"],
     });
   });
@@ -204,7 +206,7 @@ describe("the record it leaves", () => {
 
   it("writes nothing at all when nothing changed", async () => {
     const { run, writes } = save(BASE);
-    await expect(run()).resolves.toEqual({ changed: [] });
+    await expect(run()).resolves.toMatchObject({ changed: [] });
     expect(writes).toHaveLength(0);
   });
 
@@ -223,5 +225,55 @@ describe("the statuses offered", () => {
     for (const s of ["available", "held", "sold", "recycled", "pulled"]) {
       expect(ITEM_STATUSES).toContain(s);
     }
+  });
+});
+
+describe("putting it back", () => {
+  /** The undo's hidden inputs, read the way the action would read them. */
+  const asForm = (fields: Record<string, string>) => new URLSearchParams(fields);
+
+  it("round-trips: what undo posts is exactly what was there", () => {
+    // The one property that matters. Every field name written by
+    // `itemFormFields` has to be a field name `readItemForm` reads — a typo
+    // in either arrives as an empty string and silently blanks the item.
+    expect(diffItem(BASE, readItemForm(asForm(itemFormFields(BASE))))).toEqual({});
+  });
+
+  it("round-trips the awkward values too", () => {
+    const odd: ItemRow = {
+      ...BASE,
+      description: null,
+      brand: null,
+      tag_color: null,
+      location_id: null,
+      price_cents: 1233,
+      retail_estimate_cents: 0,
+      weight_lbs: 0,
+      status: "pulled",
+    };
+    expect(diffItem(odd, readItemForm(asForm(itemFormFields(odd))))).toEqual({});
+  });
+
+  it("hands back the values from before the edit, not after it", async () => {
+    const { run } = save(BASE, { priceCents: 1800 });
+    const { undo } = await run();
+    expect(undo.price).toBe("22.00");
+    expect(diffItem(BASE, readItemForm(asForm(undo)))).toEqual({});
+  });
+
+  it("offers an undo even when nothing changed, so the button is never a lie", async () => {
+    const { run } = save(BASE);
+    const { changed, undo } = await run();
+    expect(changed).toEqual([]);
+    expect(diffItem(BASE, readItemForm(asForm(undo)))).toEqual({});
+  });
+
+  it("still refuses, when the undo would move settled money", async () => {
+    // An undo is an edit. A sold item whose price was somehow changed cannot
+    // be un-changed here either — the refusal is the same one, because it is
+    // literally the same code path.
+    const sold: ItemRow = { ...BASE, status: "sold", sold_at: "2026-07-25 10:00:00" };
+    const { run } = save(sold, { priceCents: 1800 });
+    await expect(run()).rejects.toBeInstanceOf(ItemEditError);
   });
 });

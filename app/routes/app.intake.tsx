@@ -8,6 +8,7 @@ import { envFrom } from "../lib/env";
 import { tagColorForIntake, TAG_COLOR_HEX, type MarkdownRule } from "../lib/markdown";
 import { findOrCreateContact } from "../lib/contacts";
 import { Badge, Button, Card, Field, Input, Notice, Select, Textarea } from "../components/ui";
+import { ToastFrom } from "../components/toast";
 import { AiGuessNote } from "../components/Compass";
 import type { ItemExtraction } from "../lib/ai";
 
@@ -444,7 +445,7 @@ export default function Intake({ loaderData, actionData }: Route.ComponentProps)
               </div>
             </details>
 
-            {actionData?.error ? <Notice tone="warn">{actionData.error}</Notice> : null}
+            <ToastFrom data={actionData} />
 
             <div className="flex items-center gap-3 border-t border-line pt-4">
               <Button type="submit" disabled={saving}>

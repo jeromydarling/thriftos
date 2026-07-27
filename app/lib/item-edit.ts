@@ -63,6 +63,7 @@ export interface ItemRow {
   sold_at: string | null;
   sold_price_cents: number | null;
   held_by_transaction_id: string | null;
+  updated_at: string | null;
 }
 
 export async function itemById(
@@ -76,7 +77,8 @@ export async function itemById(
       `SELECT id, title, description, category, brand, color, size, material, condition,
               condition_notes, price_cents, retail_estimate_cents, weight_lbs, tag_color,
               tag_number, intake_date, status, location_id, photo_key, photo_enhanced_key,
-              photo_enhanced_at, sold_at, sold_price_cents, held_by_transaction_id
+              photo_enhanced_at, sold_at, sold_price_cents, held_by_transaction_id,
+              updated_at
          FROM items WHERE id = ? AND org_id = ?`,
       itemId,
       orgId
@@ -152,6 +154,44 @@ export function readItemForm(form: {
   };
 }
 
+/**
+ * The same item, written back out as the form that produced it.
+ *
+ * This is the whole of undo. Post these values at the edit action and the item
+ * is what it was — no rollback table, no shadow copy, and no second code path
+ * that could disagree with the first one about what "sold" means. The refusals
+ * above apply to an undo exactly as they apply to any other edit, because it
+ * *is* any other edit.
+ *
+ * It has to name every field `readItemForm` reads. A field written here under
+ * the wrong name doesn't fail loudly — it arrives empty and quietly blanks
+ * itself, which is the worst possible outcome for a button labelled "Undo". So
+ * `item-edit.test` round-trips a row through both and asserts nothing moved.
+ */
+export function itemFormFields(item: ItemRow): Record<string, string> {
+  // Cents in the database, dollars in the box. `readItemForm` multiplies back.
+  const dollars = (cents: number) => (cents / 100).toFixed(2);
+
+  return {
+    title: item.title,
+    description: item.description ?? "",
+    category: item.category ?? "",
+    brand: item.brand ?? "",
+    color: item.color ?? "",
+    size: item.size ?? "",
+    material: item.material ?? "",
+    condition: item.condition,
+    condition_notes: item.condition_notes ?? "",
+    price: dollars(item.price_cents),
+    retail: dollars(item.retail_estimate_cents),
+    weight_lbs: String(item.weight_lbs),
+    tag_color: item.tag_color ?? "",
+    tag_number: item.tag_number ?? "",
+    location_id: item.location_id ?? "",
+    status: item.status,
+  };
+}
+
 /** Field-by-field, what actually changed. Empty when nothing did. */
 export function diffItem(before: ItemRow, edits: ItemEdits): Record<string, [unknown, unknown]> {
   const pairs: [string, unknown, unknown][] = [
@@ -184,12 +224,12 @@ export function diffItem(before: ItemRow, edits: ItemEdits): Record<string, [unk
  * Apply an edit, or refuse it and say why.
  *
  * Returns the fields that changed, so the screen can tell somebody what it
- * did rather than just going quiet.
+ * did rather than just going quiet — and the form that puts it back.
  */
 export async function saveItem(
   db: D1Database,
   opts: { orgId: string; userId: string; itemId: string; edits: ItemEdits }
-): Promise<{ changed: string[] }> {
+): Promise<{ changed: string[]; undo: Record<string, string> }> {
   const before = await itemById(db, opts.orgId, opts.itemId);
   if (!before) throw new ItemEditError("We can't find that item.");
 
@@ -222,8 +262,11 @@ export async function saveItem(
     );
   }
 
+  // Captured before the write, which is the only moment it's true.
+  const undo = itemFormFields(before);
+
   const changed = diffItem(before, edits);
-  if (Object.keys(changed).length === 0) return { changed: [] };
+  if (Object.keys(changed).length === 0) return { changed: [], undo };
 
   await run(
     db,
@@ -265,5 +308,5 @@ export async function saveItem(
     JSON.stringify(changed)
   );
 
-  return { changed: Object.keys(changed) };
+  return { changed: Object.keys(changed), undo };
 }

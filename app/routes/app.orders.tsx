@@ -14,7 +14,8 @@ import {
   pickList,
 } from "../lib/fulfilment";
 import { FULFILMENT_FLOW, type FulfilmentStatus } from "../lib/orders";
-import { Badge, Button, Card, Input, Notice, money } from "../components/ui";
+import { Badge, Button, Card, Input, money } from "../components/ui";
+import { ToastFrom } from "../components/toast";
 
 export function meta() {
   return [{ title: "Online orders | ThriftOS" }];
@@ -111,12 +112,7 @@ export default function Orders({ loaderData, actionData }: Route.ComponentProps)
         </p>
       </header>
 
-      {actionData && "ok" in actionData && actionData.ok ? (
-        <Notice tone="good">{actionData.ok}</Notice>
-      ) : null}
-      {actionData && "error" in actionData && actionData.error ? (
-        <Notice tone="warn">{actionData.error}</Notice>
-      ) : null}
+      <ToastFrom data={actionData} />
 
       {order ? (
         <Card>

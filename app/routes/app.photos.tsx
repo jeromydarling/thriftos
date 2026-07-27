@@ -19,6 +19,7 @@ import {
 import { ENHANCE_EXPLAINER } from "../lib/photos";
 import { LIMITS, rateLimit } from "../lib/ratelimit";
 import { Button, Card, EmptyState, LinkButton, Notice } from "../components/ui";
+import { ToastFrom } from "../components/toast";
 
 export function meta() {
   return [{ title: "Photos | ThriftOS" }];
@@ -152,12 +153,7 @@ export default function Photos({ loaderData, actionData }: Route.ComponentProps)
         </p>
       </header>
 
-      {actionData && "ok" in actionData && actionData.ok ? (
-        <Notice tone="good">{actionData.ok}</Notice>
-      ) : null}
-      {actionData && "error" in actionData && actionData.error ? (
-        <Notice tone="warn">{actionData.error}</Notice>
-      ) : null}
+      <ToastFrom data={actionData} />
 
       {!available ? (
         <Notice tone="warn">

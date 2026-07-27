@@ -17,7 +17,9 @@ import {
 } from "../lib/brand";
 import { ASSETS, type AssetKind } from "../lib/studio/assets";
 import { assetReadiness, gatherStudioContext } from "../lib/studio/facts";
-import { Button, Card, Input, Notice } from "../components/ui";
+import { Button, Card, Input } from "../components/ui";
+import { ToastFrom } from "../components/toast";
+import { ok } from "../lib/toast";
 
 export function meta() {
   return [{ title: "Brand studio | ThriftOS" }];
@@ -95,7 +97,7 @@ export async function action({ request, context }: Route.ActionArgs) {
     user.orgId
   );
 
-  return { ok: true };
+  return ok("Saved. Every asset and your shop page now use these.");
 }
 
 const VERDICT_TONE: Record<string, string> = {
@@ -131,12 +133,7 @@ export default function Studio({ loaderData, actionData }: Route.ComponentProps)
         </p>
       </header>
 
-      {actionData && "ok" in actionData ? (
-        <Notice tone="good">Saved. Every asset and your shop page now use these.</Notice>
-      ) : null}
-      {actionData && "error" in actionData && actionData.error ? (
-        <Notice tone="warn">{actionData.error}</Notice>
-      ) : null}
+      <ToastFrom data={actionData} />
 
       <Form method="post" className="space-y-6">
         <input type="hidden" name="intent" value="kit" />

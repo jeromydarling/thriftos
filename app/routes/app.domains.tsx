@@ -15,6 +15,7 @@ import {
   type DomainConfig,
 } from "../lib/domains";
 import { Badge, Button, Card, Input, Notice } from "../components/ui";
+import { ToastFrom } from "../components/toast";
 
 export function meta() {
   return [{ title: "Your domain | ThriftOS" }];
@@ -137,12 +138,7 @@ export default function Domains({ loaderData, actionData }: Route.ComponentProps
         </p>
       </header>
 
-      {actionData && "ok" in actionData && actionData.ok ? (
-        <Notice tone="good">{actionData.ok}</Notice>
-      ) : null}
-      {actionData && "error" in actionData && actionData.error ? (
-        <Notice tone="warn">{actionData.error}</Notice>
-      ) : null}
+      <ToastFrom data={actionData} />
 
       {!readiness.configured ? <Notice tone="info">{readiness.reason}</Notice> : null}
 

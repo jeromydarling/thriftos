@@ -6,7 +6,8 @@ import { newId } from "../lib/ids";
 import { envFrom } from "../lib/env";
 import { findOrCreateContact } from "../lib/contacts";
 import { VOLUNTEER_HOUR_VALUE_SOURCE, volunteerHoursValueCents } from "../lib/impact";
-import { Badge, Button, Card, EmptyState, Field, Input, Notice, Select, money } from "../components/ui";
+import { Badge, Button, Card, EmptyState, Field, Input, Select, money } from "../components/ui";
+import { ToastFrom } from "../components/toast";
 
 export function meta() {
   return [{ title: "Volunteers | ThriftOS" }];
@@ -151,7 +152,7 @@ export default function Volunteers({ loaderData, actionData }: Route.ComponentPr
         </Card>
       </div>
 
-      {actionData?.error ? <Notice tone="warn">{actionData.error}</Notice> : null}
+      <ToastFrom data={actionData} />
 
       <div className="grid gap-6 lg:grid-cols-[22rem_1fr]">
         <Card className="h-fit">

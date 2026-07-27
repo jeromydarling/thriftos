@@ -21,6 +21,8 @@ import {
   nextMarkdown,
 } from "../lib/markdown";
 import { Badge, Button, Card, Field, Input, Notice, Select, Textarea, money } from "../components/ui";
+import { ToastFrom } from "../components/toast";
+import { failed, noted, ok } from "../lib/toast";
 
 export function meta({ loaderData }: Route.MetaArgs) {
   return [{ title: loaderData?.item ? `${loaderData.item.title} | ThriftOS` : "Item | ThriftOS" }];
@@ -82,20 +84,24 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   const form = await request.formData();
 
   try {
-    const { changed } = await saveItem(env.DB, {
+    const { changed, undo } = await saveItem(env.DB, {
       orgId: user.orgId,
       userId: user.id,
       itemId: params.id ?? "",
       edits: readItemForm(form),
     });
 
-    if (changed.length === 0) return { ok: "Nothing to change — it's already like that." };
-    return {
-      ok: `Saved. ${changed.length} ${changed.length === 1 ? "field" : "fields"} updated.`,
-    };
+    if (changed.length === 0) return noted("Nothing to change — it's already like that.");
+
+    // The undo posts the values from before straight back at this same action,
+    // so it goes through every rule above. Undoing an undo is a redo, which is
+    // the behaviour anyone would expect from pressing it twice.
+    return ok(`Saved. ${changed.length} ${changed.length === 1 ? "field" : "fields"} updated.`, {
+      undo: { fields: undo },
+    });
   } catch (err) {
-    if (err instanceof ItemEditError) return { error: err.message };
-    return { error: "That didn't save. Nothing has been changed." };
+    if (err instanceof ItemEditError) return failed(err.message);
+    return failed("That didn't save. Nothing has been changed.");
   }
 }
 
@@ -140,12 +146,7 @@ export default function ItemDetail({ loaderData, actionData }: Route.ComponentPr
         </div>
       </div>
 
-      {actionData && "ok" in actionData && actionData.ok ? (
-        <Notice tone="good">{actionData.ok}</Notice>
-      ) : null}
-      {actionData && "error" in actionData && actionData.error ? (
-        <Notice tone="warn">{actionData.error}</Notice>
-      ) : null}
+      <ToastFrom data={actionData} />
 
       {settled ? (
         <Notice>
@@ -215,7 +216,12 @@ export default function ItemDetail({ loaderData, actionData }: Route.ComponentPr
         </div>
       </Card>
 
-      <Form method="post">
+      {/* Keyed on when the item last moved, so the boxes are remounted after a
+          save and show what's actually stored. Without this the inputs keep
+          whatever was typed into them — which is survivable after a save, and
+          a trap after an undo: the screen still shows the edit you just
+          reversed, so you press Undo again and redo it. */}
+      <Form method="post" key={item.updated_at ?? "new"}>
         <Card>
           <h2 className="font-display text-lg text-bark">What it is</h2>
           <div className="mt-4 space-y-4">

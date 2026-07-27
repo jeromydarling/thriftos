@@ -7,6 +7,7 @@ import { ctxFrom, envFrom } from "../lib/env";
 import { findOrCreateContact } from "../lib/contacts";
 import { donationReceiptEmail, sendEmail } from "../lib/email";
 import { Button, Card, EmptyState, Field, Input, money, Notice, TableScroll, Textarea } from "../components/ui";
+import { ToastFrom } from "../components/toast";
 
 export function meta() {
   return [{ title: "Donations | ThriftOS" }];
@@ -226,7 +227,7 @@ export default function Donations({ loaderData, actionData }: Route.ComponentPro
         </Notice>
       ) : null}
 
-      {actionData?.error ? <Notice tone="warn">{actionData.error}</Notice> : null}
+      <ToastFrom data={actionData} />
 
       <div className="grid gap-6 lg:grid-cols-[22rem_1fr]">
         <Card className="h-fit">

@@ -11,6 +11,7 @@ import {
 } from "../lib/onboarding";
 import { clearSampleData, loadSampleData, sampleDataSummary } from "../lib/sample-data";
 import { Button, Card, Notice } from "../components/ui";
+import { ToastFrom } from "../components/toast";
 
 export function meta() {
   return [{ title: "Welcome | ThriftOS" }];
@@ -113,9 +114,7 @@ export default function Welcome({ loaderData, actionData }: Route.ComponentProps
         </p>
       </header>
 
-      {actionData && "error" in actionData && actionData.error ? (
-        <Notice tone="warn">{actionData.error}</Notice>
-      ) : null}
+      <ToastFrom data={actionData} />
 
       {isDemo ? (
         <Notice tone="info">

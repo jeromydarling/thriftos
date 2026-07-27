@@ -9,7 +9,9 @@ import { ensureReceiptToken } from "../lib/receipts";
 import { saleReceiptEmail, receiptByToken } from "../lib/receipts";
 import { sendEmail } from "../lib/email";
 import { planRefund, refundSale, RefundError } from "../lib/refunds";
-import { Badge, Button, Card, Input, Notice, Stat, money } from "../components/ui";
+import { Badge, Button, Card, Input, Stat, money } from "../components/ui";
+import { ToastFrom } from "../components/toast";
+import { failed, ok } from "../lib/toast";
 
 export function meta() {
   return [{ title: "Sale | ThriftOS" }];
@@ -140,8 +142,8 @@ export async function action({ params, request, context }: Route.ActionArgs) {
     );
 
     return result.sent
-      ? { ok: true, sent: email, receiptUrl: `/r/${token}` }
-      : { error: `We couldn't send that: ${result.reason}`, receiptUrl: `/r/${token}` };
+      ? { ...ok(`Receipt sent to ${email}.`), receiptUrl: `/r/${token}` }
+      : { ...failed(`We couldn't send that: ${result.reason}`), receiptUrl: `/r/${token}` };
   }
 
   if (intent === "refund") {
@@ -168,7 +170,17 @@ export async function action({ params, request, context }: Route.ActionArgs) {
         },
         env.STRIPE_SECRET_KEY ? { secretKey: env.STRIPE_SECRET_KEY } : null
       );
-      return { ok: true, refunded: result.amountCents, feeReturned: result.feeRefundCents };
+      return ok(
+        `Refunded ${money(result.amountCents)}` +
+          (result.feeRefundCents > 0
+            ? `, including ${money(result.feeRefundCents)} of our fee returned to you.`
+            : "."),
+        {
+          // No undo. A refund has left the building — Stripe has moved real
+          // money, and a button that implies otherwise would be a lie.
+          detail: "It can take a few days to reach the customer's statement.",
+        }
+      );
     } catch (err) {
       if (err instanceof RefundError) return { error: err.message };
       throw err;
@@ -227,20 +239,7 @@ export default function Sale({ loaderData, actionData }: Route.ComponentProps) {
         </Badge>
       </header>
 
-      {actionData && "error" in actionData && actionData.error ? (
-        <Notice tone="warn">{actionData.error}</Notice>
-      ) : null}
-      {actionData && "sent" in actionData && actionData.sent ? (
-        <Notice tone="good">Receipt sent to {actionData.sent}.</Notice>
-      ) : null}
-      {actionData && "refunded" in actionData && actionData.refunded ? (
-        <Notice tone="good">
-          Refunded {money(actionData.refunded)}
-          {actionData.feeReturned > 0
-            ? `, including ${money(actionData.feeReturned)} of our fee returned to you.`
-            : "."}
-        </Notice>
-      ) : null}
+      <ToastFrom data={actionData} />
 
       <Card>
         <h2 className="font-display text-xl text-bark">What was sold</h2>
