@@ -14,6 +14,12 @@ export interface AppEnv extends Env {
   STRIPE_WEBHOOK_SECRET?: string;
   /** Optional: a separate signing secret for the Connect endpoint. */
   STRIPE_CONNECT_WEBHOOK_SECRET?: string;
+  /**
+   * Shared secret for the CROS federation Stripe receiver
+   * (POST /api/stripe/federation-in). The hub signs each forwarded envelope
+   * with HMAC-SHA256 over the raw body; unset means the route fails closed.
+   */
+  FEDERATION_STRIPE_SECRET?: string;
   STRIPE_PUBLISHABLE_KEY?: string;
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;

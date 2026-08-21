@@ -12,7 +12,13 @@ import { first } from "../lib/db";
 import { getUser, roleAtLeast } from "../lib/auth";
 import type { AppEnv } from "../lib/env";
 import { stripeReadiness, StripeError } from "../lib/stripe/client";
-import { failedEvents, handleWebhook, replayEvent } from "../lib/stripe/webhooks";
+import {
+  failedEvents,
+  handleStripeEvent,
+  handleWebhook,
+  replayEvent,
+  type StripeEvent as VerifiedStripeEvent,
+} from "../lib/stripe/webhooks";
 import {
   canAcceptPayments,
   createDashboardLink,
@@ -244,6 +250,113 @@ connect.post("/api/stripe/webhook", async (c) => {
   }
 
   return json({ received: status === 200, ...result }, status);
+});
+
+/* ─── Federation receiver ───────────────────────────────────────────────── */
+
+/** Lowercase-hex HMAC-SHA256 of `message`, keyed by `secret`. */
+async function hmacHex(secret: string, message: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Constant-time string comparison — never `===` for signatures. */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+interface FederationEnvelope {
+  hub_event_id?: string;
+  satellite_app?: string;
+  stripe_event?: unknown;
+  delivered_at?: string;
+}
+
+/**
+ * The CROS hub's Stripe receiver.
+ *
+ * The hub receives all Stripe events centrally and forwards each satellite's
+ * share as a JSON envelope, signed with a shared secret rather than Stripe's
+ * own signature — the hub already verified that. Once the envelope checks
+ * out, the unwrapped event goes through handleStripeEvent, the exact code
+ * path the direct webhook runs after its verification, so the two delivery
+ * paths cannot drift.
+ */
+connect.post("/api/stripe/federation-in", async (c) => {
+  // The RAW body first — the HMAC covers these exact bytes.
+  const raw = await c.req.text();
+
+  const secret = c.env.FEDERATION_STRIPE_SECRET;
+  if (!secret) {
+    // Fail closed. An unverifiable delivery must never reach a handler.
+    return json({ ok: false, error: "federation_not_configured" }, 500);
+  }
+
+  const signature = c.req.header("X-CROS-Federation-Signature");
+  if (!signature) {
+    return json({ ok: false, error: "missing_federation_signature" }, 400);
+  }
+
+  const expected = await hmacHex(secret, raw);
+  if (!timingSafeEqual(signature.toLowerCase(), expected)) {
+    return json({ ok: false, error: "invalid_federation_signature" }, 400);
+  }
+
+  // Only now — after verification — is the body worth parsing.
+  let envelope: FederationEnvelope;
+  try {
+    envelope = JSON.parse(raw) as FederationEnvelope;
+  } catch {
+    return json({ ok: false, error: "invalid_envelope" }, 400);
+  }
+
+  if (envelope.satellite_app && envelope.satellite_app !== "thriftos") {
+    return json({ ok: false, error: "wrong_satellite" }, 400);
+  }
+
+  const stripeEvent = envelope.stripe_event;
+  if (!stripeEvent || typeof stripeEvent !== "object" || Array.isArray(stripeEvent)) {
+    return json({ ok: false, error: "invalid_stripe_event" }, 400);
+  }
+
+  const { status, result } = await handleStripeEvent(
+    c.env.DB,
+    stripeEvent as VerifiedStripeEvent,
+    c.env.STRIPE_SECRET_KEY ? { secretKey: c.env.STRIPE_SECRET_KEY } : null
+  );
+
+  // handleStripeEvent answers 400 only for an event missing id/type.
+  if (status === 400) {
+    return json({ ok: false, error: "invalid_stripe_event", detail: result.detail }, 400);
+  }
+
+  if (result.outcome === "failed") {
+    // Stored, alerted, and replayable — same as a direct-webhook failure —
+    // but the hub is told so its own delivery record shows the truth.
+    console.error("federation event processing failed:", result.eventType, result.detail);
+    return json(
+      { ok: false, error: "handler_failed", hub_event_id: envelope.hub_event_id ?? null },
+      502
+    );
+  }
+
+  return json({
+    ok: true,
+    received: true,
+    hub_event_id: envelope.hub_event_id ?? null,
+    ...result,
+  });
 });
 
 /**

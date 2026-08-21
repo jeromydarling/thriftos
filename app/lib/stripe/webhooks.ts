@@ -108,6 +108,23 @@ export async function handleWebhook(
   } catch {
     return { status: 400, result: { outcome: "failed", detail: "body was not JSON" } };
   }
+
+  return handleStripeEvent(db, event, opts.config);
+}
+
+/**
+ * Store and process one already-verified Stripe event.
+ *
+ * Both delivery paths land here — the direct Stripe webhook (after its
+ * signature check above) and the CROS federation receiver (after the hub's
+ * HMAC envelope check) — so the two cannot drift. Nothing in here trusts the
+ * transport; callers must have verified authenticity before calling.
+ */
+export async function handleStripeEvent(
+  db: D1Database,
+  event: StripeEvent,
+  config: StripeConfig | null
+): Promise<{ status: number; result: WebhookResult }> {
   if (!event?.id || !event?.type) {
     return { status: 400, result: { outcome: "failed", detail: "not a Stripe event" } };
   }
@@ -152,7 +169,7 @@ export async function handleWebhook(
   const started = Date.now();
 
   try {
-    const detail = await dispatch(db, event, opts.config);
+    const detail = await dispatch(db, event, config);
     await markEvent(db, event.id, "processed");
 
     log.info("stripe event processed", {
