@@ -52,6 +52,20 @@ export interface Entitlements {
   graceEndsAt: string | null;
   /** Days until the grace period runs out. Negative once it has. */
   daysOfGraceLeft: number | null;
+  /**
+   * Days until the trial ends, measured against the same `now` this whole
+   * object was computed from — never against the wall clock at display time.
+   *
+   * `daysOfGraceLeft` already worked this way; this field closes the one gap
+   * where it didn't. `billingNotice` used to recompute a trial countdown from
+   * `Date.now()` on its own, which is usually indistinguishable from doing it
+   * right — the two calls happen back to back — except when a caller injects
+   * a fixed `now` (a test, a replay, a scheduled job), at which point the
+   * banner silently drifts out of step with the state it's describing. A test
+   * fixture with a hardcoded trial end date failed this way the day real time
+   * caught up with it.
+   */
+  daysOfTrialLeft: number | null;
 }
 
 const DAY_MS = 86_400_000;
@@ -105,11 +119,11 @@ export async function getEntitlements(
   };
 
   if (!sub) {
-    return { ...base, state: "active", full: true, daysOfGraceLeft: null };
+    return { ...base, state: "active", full: true, daysOfGraceLeft: null, daysOfTrialLeft: null };
   }
 
   if (sub.status === "canceled") {
-    return { ...base, state: "canceled", full: false, daysOfGraceLeft: null };
+    return { ...base, state: "canceled", full: false, daysOfGraceLeft: null, daysOfTrialLeft: null };
   }
 
   if (sub.status === "trialing") {
@@ -118,9 +132,10 @@ export async function getEntitlements(
     // register keeps working. Nobody loses a Saturday's takings to a trial
     // clock.
     if (ends !== null && ends < now.getTime()) {
-      return { ...base, state: "past_due", full: false, daysOfGraceLeft: 0 };
+      return { ...base, state: "past_due", full: false, daysOfGraceLeft: 0, daysOfTrialLeft: null };
     }
-    return { ...base, state: "trialing", full: true, daysOfGraceLeft: null };
+    const daysOfTrialLeft = ends === null ? null : Math.ceil((ends - now.getTime()) / DAY_MS);
+    return { ...base, state: "trialing", full: true, daysOfGraceLeft: null, daysOfTrialLeft };
   }
 
   if (sub.status === "past_due" || sub.status === "incomplete") {
@@ -133,11 +148,11 @@ export async function getEntitlements(
     const daysLeft = Math.ceil((graceEnd - now.getTime()) / DAY_MS);
 
     return daysLeft > 0
-      ? { ...base, state: "grace", full: true, daysOfGraceLeft: daysLeft }
-      : { ...base, state: "suspended", full: false, daysOfGraceLeft: daysLeft };
+      ? { ...base, state: "grace", full: true, daysOfGraceLeft: daysLeft, daysOfTrialLeft: null }
+      : { ...base, state: "suspended", full: false, daysOfGraceLeft: daysLeft, daysOfTrialLeft: null };
   }
 
-  return { ...base, state: "active", full: true, daysOfGraceLeft: null };
+  return { ...base, state: "active", full: true, daysOfGraceLeft: null, daysOfTrialLeft: null };
 }
 
 /** Can this shop do this thing right now? */
@@ -214,10 +229,11 @@ export function billingNotice(
         href: "/app/settings",
       };
     case "trialing": {
-      if (!entitlements.trialEndsAt) return null;
-      const days = Math.ceil(
-        (new Date(entitlements.trialEndsAt).getTime() - Date.now()) / DAY_MS
-      );
+      // Read off the entitlements object rather than recomputed from
+      // Date.now() here — see the field's own comment for why that distinction
+      // matters.
+      const days = entitlements.daysOfTrialLeft;
+      if (days === null) return null;
       // Only worth mentioning near the end. A countdown from day one is
       // pressure, not information.
       if (days > 7) return null;
